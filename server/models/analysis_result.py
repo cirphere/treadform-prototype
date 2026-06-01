@@ -23,13 +23,7 @@ class DangerTimestamp(BaseModel):
     """타임라인에 표시할 🔴 위험 이벤트."""
 
     time_sec: float
-    type: Literal[
-        "heel_strike",
-        "stiff_knee",
-        "over_stride",
-        "high_oscillation",
-        "overreach_tibia",
-    ]
+    type: Literal["heel_strike", "stiff_knee", "over_stride", "high_oscillation"]
     color: Literal["red"] = "red"
 
 

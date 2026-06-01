@@ -55,7 +55,12 @@ def _mock_analysis(monkeypatch):
     실제 mediapipe 호출 없이 background task 흐름만 검증한다.
     개별 테스트가 더 세밀한 mock 을 원하면 monkeypatch 를 다시 덮어쓰면 된다.
     """
-    def _fake(video_path: str, output_dir: str) -> dict:
+    def _fake(
+        video_path: str,
+        output_dir: str,
+        height_cm: float | None = None,
+        pace_sec_per_km: float | None = None,
+    ) -> dict:
         return {
             "analysis_result": AnalysisResult(
                 analysis_id="mock",
@@ -269,7 +274,7 @@ def test_background_task_marks_failed_on_exception(
     client: TestClient, tmp_path: Path, monkeypatch
 ):
     """분석 함수가 예외를 던지면 상태가 'failed' 로 전이되어야 한다."""
-    def _boom(video_path: str, output_dir: str):
+    def _boom(video_path: str, output_dir: str, **kwargs):
         raise RuntimeError("simulated mediapipe crash")
 
     monkeypatch.setattr(
@@ -381,7 +386,7 @@ def test_get_analysis_processing_state(client: TestClient):
 
 
 def test_get_analysis_failed_state(client: TestClient, tmp_path: Path, monkeypatch):
-    def _boom(video_path: str, output_dir: str):
+    def _boom(video_path: str, output_dir: str, **kwargs):
         raise RuntimeError("simulated mediapipe crash")
     monkeypatch.setattr(
         "analyzer.run_full_analysis_with_output", _boom, raising=False

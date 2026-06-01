@@ -62,15 +62,6 @@ def _collect_danger_timestamps(metrics: dict, fps: float):
                 )
             )
 
-    for entry in metrics.get("landing_tibia", {}).get("per_strike", []):
-        if entry["status"] == "overreach_tibia":
-            danger.append(
-                DangerTimestamp(
-                    time_sec=_frame_to_sec(entry["frame"], fps),
-                    type="overreach_tibia",
-                )
-            )
-
     for entry in metrics["vertical_oscillation"]["per_stride"]:
         if entry["status"] == "high_oscillation":
             danger.append(
@@ -117,15 +108,32 @@ def _avg_foot_visibility(raw_df, side: str) -> float:
     return float(raw_df[available].mean(skipna=True).mean())
 
 
-def _analyze_from_raw_df(raw_df, video_path: str):
-    """raw_df 가 이미 추출됐다고 가정하고 분석 수행. (AnalysisResult, df) 반환."""
+def _analyze_from_raw_df(
+    raw_df,
+    video_path: str,
+    height_cm: float | None = None,
+    pace_sec_per_km: float | None = None,
+):
+    """raw_df 가 이미 추출됐다고 가정하고 분석 수행. (AnalysisResult, df) 반환.
+
+    height_cm 가 주어지면 VO 가 cm-aware 모드로 동작 (프레임 내 nose~ankle 정규화
+    길이로 픽셀→cm 환산). 미주어지면 기존 정규화 임계 fallback.
+
+    pace_sec_per_km 가 주어지면 cadence 가 pace-aware 모드로 동작 — summary 에
+    expected_cadence_min/max + cadence_deviation_pct + cadence_hint 추가. 미주어지면
+    summary 는 기존 cadence_spm 필드만 노출 (기존 동작 보존).
+    """
     from analyzer import quality_assessor
+    from analyzer.body_scale import compute_body_norm_length
+    from analyzer.cadence_calibrator import (
+        calculate_expected_cadence_range,
+        classify_cadence,
+    )
     from analyzer.foot_strike_detector import detect_left_right_strikes
     from analyzer.metrics.asymmetry import analyze_asymmetry
     from analyzer.metrics.foot_strike import analyze_foot_strike
     from analyzer.metrics.knee_flexion import analyze_knee_flexion
     from analyzer.metrics.overstriding import analyze_overstriding
-    from analyzer.metrics.posture import analyze_posture_metrics
     from analyzer.metrics.vertical_osc import analyze_vertical_oscillation
     from analyzer.preprocessor import preprocess_pose_dataframe
     from models.analysis_result import AnalysisResult, QualityWarning
@@ -136,15 +144,18 @@ def _analyze_from_raw_df(raw_df, video_path: str):
     knee = analyze_knee_flexion(df, strikes)
     foot = analyze_foot_strike(df, strikes)
     over = analyze_overstriding(df, strikes)
-    vosc = analyze_vertical_oscillation(df, strikes)
-    posture = analyze_posture_metrics(df, strikes)
+    body_norm_length = compute_body_norm_length(df) if height_cm else None
+    vosc = analyze_vertical_oscillation(
+        df, strikes,
+        height_cm=height_cm,
+        body_norm_length=body_norm_length,
+    )
 
     metrics = {
         "knee_flexion": knee,
         "foot_strike": foot,
         "overstriding": over,
         "vertical_oscillation": vosc,
-        **posture,
     }
     foot_visibility = {
         "left": _avg_foot_visibility(raw_df, "left"),
@@ -173,6 +184,18 @@ def _analyze_from_raw_df(raw_df, video_path: str):
         "cadence_spm": round(cadence_spm, 1),
     }
 
+    # Cadence pace-aware 보정 (Phase 2, 2026-05-28).
+    # pace 주어지지 않으면 expected range 필드는 summary 에 미추가 (기존 동작 보존).
+    expected_rng = calculate_expected_cadence_range(pace_sec_per_km, height_cm)
+    if expected_rng is not None:
+        cad_lo, cad_hi = expected_rng
+        cls = classify_cadence(cadence_spm, cad_lo, cad_hi)
+        summary["expected_cadence_min"] = cad_lo
+        summary["expected_cadence_max"] = cad_hi
+        summary["cadence_hint"] = cls["hint"]
+        summary["cadence_deviation_pct"] = cls["deviation_pct"]
+        summary["pace_sec_per_km"] = float(pace_sec_per_km)
+
     result = AnalysisResult(
         analysis_id=Path(video_path).stem + "-" + uuid.uuid4().hex[:8],
         summary=summary,
@@ -192,7 +215,11 @@ def _analyze_from_raw_df(raw_df, video_path: str):
     return result, df
 
 
-def run_full_analysis(video_path: str):
+def run_full_analysis(
+    video_path: str,
+    height_cm: float | None = None,
+    pace_sec_per_km: float | None = None,
+):
     """
     영상 1개에 대해 전체 분석 파이프라인을 실행.
 
@@ -203,6 +230,12 @@ def run_full_analysis(video_path: str):
         4. detect_left_right_strikes() + analyze_* — 3대 지표.
         5. quality_assessor.assess(raw_df, fps, cadence) — confidence/warnings.
 
+    Args:
+        video_path: 입력 mp4 절대 경로.
+        height_cm: 사용자 신장(cm). 주어지면 VO 가 cm-aware 모드 (Phase 1).
+        pace_sec_per_km: 이번 세션 목표 pace (sec/km). 주어지면 cadence 가
+            pace-aware 모드 — summary 에 expected_cadence_min/max + hint 추가.
+
     Returns:
         models.analysis_result.AnalysisResult
 
@@ -211,17 +244,26 @@ def run_full_analysis(video_path: str):
     """
     from analyzer.pose_extractor import extract_pose_series
 
-    logger.info("run_full_analysis start: %s", video_path)
+    logger.info(
+        "run_full_analysis start: %s (height_cm=%s pace_sec_per_km=%s)",
+        video_path, height_cm, pace_sec_per_km,
+    )
 
     _validate_or_raise(video_path)
     raw_df = extract_pose_series(video_path)
-    result, _ = _analyze_from_raw_df(raw_df, video_path)
+    result, _ = _analyze_from_raw_df(
+        raw_df, video_path,
+        height_cm=height_cm,
+        pace_sec_per_km=pace_sec_per_km,
+    )
     return result
 
 
 def run_full_analysis_with_output(
     video_path: str,
     output_dir: str,
+    height_cm: float | None = None,
+    pace_sec_per_km: float | None = None,
 ) -> dict:
     """
     Step 1+2+3+8 모든 처리를 한 번에 실행 (PRD-3).
@@ -262,7 +304,11 @@ def run_full_analysis_with_output(
 
     # raw_df 1회만 추출 후 분석/렌더링이 공유.
     raw_df = extract_pose_series(video_path)
-    analysis_result, df = _analyze_from_raw_df(raw_df, video_path)
+    analysis_result, df = _analyze_from_raw_df(
+        raw_df, video_path,
+        height_cm=height_cm,
+        pace_sec_per_km=pace_sec_per_km,
+    )
 
     # skeleton_df: Hampel + L/R swap 만 적용 (lag 0 가시화용).
     #   분석용 df 를 쓰면 One Euro 평활 lag 때문에 빠른 다리 스윙에서

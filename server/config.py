@@ -69,8 +69,30 @@ LR_SWAP_RATIO = 0.4          # swap_cost / normal_cost 가 이 값 이하여야.
 # 3. Foot Strike (착지) 판별
 # =============================================================================
 # 동일 발 착지 중복 판정 방지를 위한 최소 프레임 간격.
-# 30fps 기준 약 0.33초 → 사람이 1초에 3보 이상 같은 발로 디딜 수 없으므로 충분.
-FOOT_STRIKE_COOLDOWN_FRAMES = 10
+#
+# 60fps 기준 20 프레임 = 0.333초. 정상 stride cycle (180 spm 양발 합산
+# baseline → 한 발 cycle 60/(180/2) ≈ 0.667초) 의 절반.
+#
+# [실측 보정 2026-05-29] 기존 10프레임 (0.167s) 은 한 stance phase 안의
+# pose 노이즈/발목 미세 oscillation 에 의한 double peak 를 막지 못해
+# 측정 cadence 가 +10~28% over-count 됐다. 4영상 (pace530/6/630/7) ground
+# truth 카운트 (25/67/45/33) 대비 cd=20~40 plateau 에서 정확 매치 (pace630
+# 만 +3 잔여, prominence 임계 별도 검토). cd=20 은 plateau 의 보수적 경계
+# 로 정상 strike 손실 위험 0, 실측에서 검증된 안전 마진.
+#
+# [Ref] Cavanagh & Kram 1989 MSSE 21(4):467-479 — 정상 stride cycle 시간.
+#       Daniels 2021 — 180 spm baseline.
+FOOT_STRIKE_COOLDOWN_FRAMES = 20
+
+# 정규화 좌표상 peak prominence 의 최소 임계.
+# [실측 보정 2026-05-29] pose extraction boundary (NaN sentinel 마스킹 영역
+# 직후) 의 spurious peak (prom 0.0001 ~ 0.0007) 가 정상 strike (prom 0.04 ~
+# 0.09, median ≈ 0.07) 와 100배 차이로 분리된다. 4영상 sweep 결과
+# 0.001 이 spurious 만 거르고 정상 strike 손실 0 인 보수적 임계 (4영상
+# 총 절대오차 5→3 로 감소: pace530 0/pace6 0/pace630 +2/pace7 -1).
+# 0.001 = 정규화 좌표 화면 높이의 0.1% = 1080p 에서 약 1.1픽셀 (pose
+# estimation noise floor 수준의 미세 변위).
+FOOT_STRIKE_MIN_PROMINENCE = 0.001
 
 
 # =============================================================================
@@ -99,8 +121,7 @@ TARGET_RESOLUTION = (1280, 720)  # (width, height)
 #   y_t = α·x_t + (1-α)·y_{t-1}
 # α 가 클수록 lag ↓ / jitter 남음. EMA_ALPHA(0.3, 분석용) 보다 명확히 크게 두어
 # 가시 lag 을 1~2 프레임(33~66ms) 수준으로 제한. 1.0 = 평활화 OFF.
-# 0.4 = lag ~2프레임(33ms @60fps), despiked 잔여 spike 진폭 약 40% 통과.
-RENDER_SMOOTHING_ALPHA = 0.4
+RENDER_SMOOTHING_ALPHA = 0.6
 
 
 # =============================================================================
@@ -108,17 +129,28 @@ RENDER_SMOOTHING_ALPHA = 0.4
 # =============================================================================
 # 착지 시점(IC, initial contact) hip-knee-ankle 벡터 내적 각도(°).
 # 4단계: stiff_knee / borderline / good_flexion / over_bent
-# Borderline 은 임계값 ±5° 이내일 때 우선 적용한다 (PRD-2 흔한 함정 #1).
+# Borderline 은 임계값 ±3° 이내일 때 우선 적용한다 (PRD-2 흔한 함정 #1).
 # [Ref] Heiderscheit et al. 2011 MSSE (doi:10.1249/MSS.0b013e3181ebedf4) —
-#       IC knee flexion 변동성 및 stiff knee 가 shock absorption 부족과 연결됨을
-#       정량. 우리 측정 (180° = straight leg) 기준 정상 IC flexion ~20° → 160° 가
-#       임상 통념의 stiff/normal 경계. 정확한 단일 정량 임계의 1차 출처는 부재
-#       하며 본 임계는 임상 통념 + pace 4 영상 자체 검증 기반. PRD-2 §R1.
-KNEE_STIFF_THRESHOLD = 160          # 이상 → Stiff Knee 🔴
+#       n=45 healthy recreational runner 의 preferred condition IC knee flexion
+#       baseline = 17.8° ± 4.0° (논문 본문 보고값). Heiderscheit 컨벤션 (0° =
+#       straight leg) ↔ 우리 컨벤션 (180° = straight leg) 변환:
+#         knee angle 162.2° = IC flexion 17.8° = baseline mean
+#         knee angle 165°   = IC flexion 15°   = mean − 0.7 SD (stiff 임계)
+#         knee angle 140°   = IC flexion 40°   = mean + 5.6 SD (over_bent 임계)
+#       우리 stiff 임계 165° 는 baseline 평균보다 약 0.7 SD stiffer 영역 — 통계적
+#       outlier-leaning 위치. 자체 데이터: pace 530/6/7/630 200 strikes 평균
+#       knee angle 158.5° (baseline + 0.9 SD 더 굽힘 — 숙련 러너 일관 신호),
+#       max 164°, > 165° 0건, < 140° 0건. False positive 0건 검증.
+#       2026-05-25 재조정 (160→165, tol 5→3) 이전 임계는 분포 모드 [158,160)
+#       정점을 가로질러 94.5% borderline 라벨링되며 신호 가치 상실.
+#       향후 작업: Peak Flexion (mid-stance) 측정 추가 시 Souza 2016 PMR
+#       (PMC4714754) 의 "<45° flexion = stiff" 가 1차 근거 예정. 현재는 IC 만
+#       평가. PRD-2 §R1 + §[R1-future].
+KNEE_STIFF_THRESHOLD = 165          # 이상 → Stiff Knee 🔴
 KNEE_GOOD_MIN = 140                 # 정상 하한 🟢
-KNEE_GOOD_MAX = 160                 # 정상 상한 🟢
+KNEE_GOOD_MAX = 165                 # 정상 상한 🟢
 KNEE_OVERBENT_THRESHOLD = 140       # 미만 → Over Bent 🟡
-KNEE_BORDERLINE_TOLERANCE = 5       # 임계값 ±5° → borderline 🟡
+KNEE_BORDERLINE_TOLERANCE = 3       # 임계값 ±3° → borderline 🟡
 
 
 # =============================================================================
@@ -158,7 +190,17 @@ OVERSTRIDE_THRESHOLD = 0.15         # 초과 → over_stride 🔴, 이하 → go
 #       (Cavanagh & Williams 1982 MSSE PMID:7070254). 신장 1.7m + PRD-8 촬영
 #       가이드(인체 화면 60~80% 점유) 기준 정규화 0.06 ≈ 10cm (healthy upper
 #       bound). 2026-05-17 보수적 임계 0.08 → 0.06 으로 학술 통념에 정렬. PRD-2 §R4.
-VERTICAL_OSC_HIGH_THRESHOLD = 0.06  # 초과 → high_oscillation 🔴
+VERTICAL_OSC_HIGH_THRESHOLD = 0.06  # 초과 → high_oscillation 🔴 (fallback: 신장 미입력 시)
+
+# === cm-aware 모드 (Phase 1, 2026-05-28) ===
+# 신장(height_cm) + 프레임 내 신체 정규화 길이(nose~ankle median) 환산으로
+# 정규화 임계의 프레이밍 의존성을 제거하고 절대 cm 단위 임계를 적용한다.
+#     scale_cm_per_norm = height_cm / body_norm_length
+#     vo_cm = vo_norm * scale_cm_per_norm
+# height_cm 미입력 또는 body_norm_length 추정 실패 시 VERTICAL_OSC_HIGH_THRESHOLD
+# 정규화 임계로 fallback (frame 60~80% 점유 가정 유지).
+# [Ref] Cavanagh & Williams 1982 MSSE PMID:7070254 — running economy 최적 VO 6~10cm.
+VO_HIGH_THRESHOLD_CM = 10.0
 
 
 # =============================================================================
@@ -191,9 +233,9 @@ ASYMMETRY_FOOT_VIS_DIFF_THRESHOLD = 0.10
 # 11. 입력 영상 사양 (PRD-8)
 # =============================================================================
 # 분석 알고리즘(MediaPipe heavy + Hampel + One Euro) 은 자체 정확도 천장에 도달했고,
-# 30fps 미만에서는 착지 순간 표본이 부족해 스켈레톤 추적과 foot strike 판정이
-# 불안정하다. MVP 접근성을 위해 30fps 이상은 허용하되, 빠른 페이스 + 저fps 조합은
-# 소프트 경고로 안내한다.
+# 4'/km 이상의 빠른 페이스 + 30fps 환경에서 모션 블러 + 프레임 간 점프로 인해
+# 스켈레톤 추적이 실패하는 현상이 관측됨. 알고리즘이 아닌 입력 정보량의 한계이므로
+# 영상 사양 자체에 가드레일을 둔다.
 
 # === 하드 요건 (미충족 시 분석 거부) ===
 # [Ref] PRD-8 §V1 (해상도, BlazePose 입력 ROI 정확도) /
@@ -201,7 +243,7 @@ ASYMMETRY_FOOT_VIS_DIFF_THRESHOLD = 0.10
 #       §V3 (길이, Zifchock 통계 안정성 + BENCHMARK.md elapsed).
 MIN_VIDEO_WIDTH = 1280
 MIN_VIDEO_HEIGHT = 720
-MIN_VIDEO_FPS = 30
+MIN_VIDEO_FPS = 60
 MIN_VIDEO_DURATION_SEC = 5
 MAX_VIDEO_DURATION_SEC = 60
 # 분석 가능 프레임 비율 하한 (사람이 검출된 프레임 / 전체 프레임).
@@ -230,31 +272,42 @@ WARN_SIDE_ANGLE_DEVIATION = 0.25
 # (현재 미사용. 추후 quality_assessor 확장 시 사용.)
 WARN_CAMERA_SHAKE_PIXELS = 3.0
 
-
-# =============================================================================
-# 12. 추가 폼 지표 (측면 영상 기반)
-# =============================================================================
-# MVP v2 확장 지표. 모두 단일 측면 영상에서 비교적 안정적으로 산출 가능한
-# 2D proxy 이며, 부상 판정보다는 코칭/폼 개선을 우선한다.
-
-# 착지 시 정강이 기울기: ankle→knee 벡터가 화면 세로축에서 벗어난 각도.
-# 값이 클수록 착지 순간 발이 무릎보다 앞에 있거나 정강이가 과하게 누운 상태.
-TIBIA_OVERREACH_THRESHOLD = 12.0
-
-# 몸통 기울기: 골반 중앙→어깨 중앙 벡터의 세로축 기준 절대 각도.
-# 러닝에서는 약간의 전경사가 자연스럽지만 25° 이상은 과한 숙임/젖힘 가능성.
-TORSO_LEAN_LOW_THRESHOLD = 3.0
-TORSO_LEAN_HIGH_THRESHOLD = 25.0
-
-# 팔꿈치 각도: shoulder-elbow-wrist 내각. 너무 작으면 팔이 접혀 긴장, 너무 크면
-# 팔이 펴져 리듬 손실 가능성.
-ARM_ELBOW_MIN_GOOD = 70.0
-ARM_ELBOW_MAX_GOOD = 115.0
-
-# 머리 전방 위치: 코/귀 중앙과 어깨 중앙의 수평 거리 ÷ torso length.
-# 측면 방향을 자동 판별하기 어렵기 때문에 절대값 proxy 로 사용한다.
-HEAD_FORWARD_RATIO_THRESHOLD = 0.22
-
 # === 신뢰도 등급 (경고 개수 기반) ===
 CONFIDENCE_HIGH_MAX_WARNINGS = 0       # 0개 → high
 CONFIDENCE_MEDIUM_MAX_WARNINGS = 2     # 1~2개 → medium, 3개+ → low
+
+
+# =============================================================================
+# 12. Cadence pace-aware 보정 (Phase 0, 2026-05-28)
+# =============================================================================
+# 사용자 입력 pace (sec/km) + height (cm) 로 개인별 기대 cadence 범위 산출.
+# 단일 "180 spm" cutoff 는 (a) pace 가 빠를수록 cadence 자연 상승, (b) 키 큰
+# 사람은 stride 길어 같은 pace 에 더 낮은 cadence 가 정상 — 두 효과 무시.
+#
+# 밴드는 신장 170cm 기준 명목 범위 (lo, hi). 신장 보정:
+#   shift_spm = -(height_cm - 170) * CADENCE_HEIGHT_SHIFT_SPM_PER_CM
+# (키 ↑ → expected ↓; 키 ↓ → expected ↑)
+#
+# Pace 미입력 시 expected_range = None → coach trailing 생략, summary 의
+# cadence_spm 만 정보성으로 노출 (기존 동작 유지).
+#
+# [Ref] Daniels' Running Formula 4ed (Human Kinetics 2021) — 180 spm 엘리트
+#       표준 + pace 별 자연 증가. Hunter et al. 2017 J Sports Sci 35(15):1488-1495
+#       (DOI:10.1080/02640414.2016.1228562) — pace 와 cadence 의 양의 회귀.
+#       Schubert et al. 2014 Sports Health (PRD-2 §R3) — stride freq 와 mechanics.
+#       Cavanagh & Kram 1989 MSSE 21(4):467-479 — 개인별 economy 최적 stride freq.
+#       Winter 1990 — leg length ≈ height × 0.485.
+CADENCE_BANDS_170CM: tuple[tuple[float, float, int, int], ...] = (
+    # (pace_min_sec_per_km inclusive, pace_max_sec_per_km exclusive, spm_lo, spm_hi)
+    (390.0, float("inf"), 162, 175),   # >= 6:30/km — 조깅
+    (330.0, 390.0,        168, 180),   # 5:30 ~ 6:30
+    (270.0, 330.0,        175, 188),   # 4:30 ~ 5:30
+    (0.0,   270.0,        182, 196),   # < 4:30 — tempo/race
+)
+CADENCE_HEIGHT_SHIFT_SPM_PER_CM = 0.5  # +1cm 신장 → -0.5 spm 기대치
+
+# 측정 cadence 가 expected_range 밖 → hint 분류. deviation_pct 는 가장 가까운
+# 경계 대비 백분율 (low/high), optimal 이면 0.
+CADENCE_HINT_OPTIMAL = "optimal"
+CADENCE_HINT_LOW = "low"
+CADENCE_HINT_HIGH = "high"

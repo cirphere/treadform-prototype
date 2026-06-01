@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks
 
-from config import FOOT_STRIKE_COOLDOWN_FRAMES
+from config import FOOT_STRIKE_COOLDOWN_FRAMES, FOOT_STRIKE_MIN_PROMINENCE
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 def detect_foot_strikes(
     ankle_y_series: np.ndarray,
     cooldown: int = FOOT_STRIKE_COOLDOWN_FRAMES,
+    min_prominence: float = FOOT_STRIKE_MIN_PROMINENCE,
 ) -> np.ndarray:
     """
     발목 Y 시계열의 극대점(= 화면 하단 = 착지)을 찾는다.
@@ -32,6 +33,8 @@ def detect_foot_strikes(
     Args:
         ankle_y_series: 1D 배열 (NaN 가능).
         cooldown: 동일 발 착지 사이 최소 프레임 간격.
+        min_prominence: peak prominence 의 최소 임계. pose extraction
+            boundary 의 spurious peak (정규화 prom < 0.001) 를 거른다.
 
     Returns:
         착지 프레임 인덱스 배열 (오름차순).
@@ -44,7 +47,7 @@ def detect_foot_strikes(
     sentinel = np.nanmin(arr) - 1.0 if np.isfinite(np.nanmin(arr)) else -1.0
     sanitized = np.where(np.isnan(arr), sentinel, arr)
 
-    peaks, _ = find_peaks(sanitized, distance=cooldown)
+    peaks, _ = find_peaks(sanitized, distance=cooldown, prominence=min_prominence)
     # 마스킹된 NaN 위치는 결과에서 제거.
     peaks = peaks[~np.isnan(arr[peaks])]
     return peaks.astype(int)

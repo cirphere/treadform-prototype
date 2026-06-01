@@ -30,22 +30,12 @@ from analyzer.metrics.overstriding import (
     calculate_overstride_distance,
     classify_overstride,
 )
-from analyzer.metrics.posture import (
-    analyze_arm_position,
-    analyze_head_position,
-    analyze_landing_tibia,
-    analyze_posture_metrics,
-    analyze_torso_posture,
-    classify_arm_angle,
-    classify_head_position,
-    classify_tibia,
-    classify_torso_lean,
-)
 from analyzer.metrics.vertical_osc import (
     analyze_vertical_oscillation,
     calculate_oscillation_per_stride,
     classify_oscillation,
 )
+from analyzer.body_scale import compute_body_norm_length
 from config import (
     ASYMMETRY_FOOT_VIS_DIFF_THRESHOLD,
     ASYMMETRY_WARNING_THRESHOLD,
@@ -54,6 +44,7 @@ from config import (
     KNEE_STIFF_THRESHOLD,
     OVERSTRIDE_THRESHOLD,
     VERTICAL_OSC_HIGH_THRESHOLD,
+    VO_HIGH_THRESHOLD_CM,
 )
 
 
@@ -63,15 +54,6 @@ from config import (
 LANDMARKS = [
     "left_hip",
     "right_hip",
-    "nose",
-    "left_ear",
-    "right_ear",
-    "left_shoulder",
-    "right_shoulder",
-    "left_elbow",
-    "right_elbow",
-    "left_wrist",
-    "right_wrist",
     "left_knee",
     "right_knee",
     "left_ankle",
@@ -90,26 +72,6 @@ def _empty_frame_row(frame_idx: int, fps: float = 30.0) -> dict:
         row[f"{lm}_y"] = 0.5
         row[f"{lm}_z"] = 0.0
         row[f"{lm}_visibility"] = 1.0
-    # 측면 러닝 기본 상체 포즈: 약 10° 몸통 기울기, 자연스러운 팔꿈치 각도,
-    # 머리는 어깨 위에 가깝게 정렬.
-    row["left_shoulder_x"] = 0.54
-    row["right_shoulder_x"] = 0.54
-    row["left_shoulder_y"] = 0.20
-    row["right_shoulder_y"] = 0.20
-    row["left_elbow_x"] = 0.60
-    row["right_elbow_x"] = 0.60
-    row["left_elbow_y"] = 0.32
-    row["right_elbow_y"] = 0.32
-    row["left_wrist_x"] = 0.48
-    row["right_wrist_x"] = 0.48
-    row["left_wrist_y"] = 0.38
-    row["right_wrist_y"] = 0.38
-    row["nose_x"] = 0.56
-    row["nose_y"] = 0.15
-    row["left_ear_x"] = 0.55
-    row["right_ear_x"] = 0.55
-    row["left_ear_y"] = 0.16
-    row["right_ear_y"] = 0.16
     return row
 
 
@@ -181,26 +143,26 @@ class TestKneeFlexion:
         assert math.isnan(calculate_knee_angle(hip, knee, ankle))
 
     def test_knee_at_stiff_threshold_is_borderline(self):
-        # 정확히 160° → ±5° 범위 안 → borderline.
+        # 정확히 stiff 임계값 (165°) → ±tol 범위 안 → borderline.
         assert classify_knee_status(float(KNEE_STIFF_THRESHOLD)) == "borderline"
 
-    def test_knee_at_165_is_stiff(self):
-        # 160 + 5 초과 영역 → stiff.
-        assert classify_knee_status(165.0 + 0.01) == "stiff_knee"
+    def test_knee_above_stiff_border_is_stiff(self):
+        # stiff 임계 + tol 초과 (168° 초과) → stiff.
+        assert classify_knee_status(168.0 + 0.01) == "stiff_knee"
 
     def test_knee_at_150_is_good(self):
         assert classify_knee_status(150.0) == "good_flexion"
 
     def test_knee_at_130_is_over_bent(self):
-        # 140 - 5 미만 영역 → over_bent.
+        # 140 - tol 미만 영역 → over_bent.
         assert classify_knee_status(130.0) == "over_bent"
 
     def test_knee_at_overbent_threshold_is_borderline(self):
         assert classify_knee_status(140.0) == "borderline"
 
     def test_borderline_tolerance_respected(self):
-        # KNEE_BORDERLINE_TOLERANCE 가 5 라는 가정 의존성을 명시.
-        assert KNEE_BORDERLINE_TOLERANCE == 5
+        # KNEE_BORDERLINE_TOLERANCE 가 3 이라는 가정 의존성을 명시 (2026-05-25 재조정).
+        assert KNEE_BORDERLINE_TOLERANCE == 3
 
     def test_analyze_knee_flexion_aggregates(
         self, synthetic_running_df, synthetic_strikes
@@ -327,52 +289,166 @@ class TestVerticalOscillation:
         result = analyze_vertical_oscillation(df, synthetic_strikes)
         assert result["status"] == "high"
         assert result["avg_value"] > VERTICAL_OSC_HIGH_THRESHOLD
+        # fallback 모드: cm 필드는 None.
+        assert result["avg_value_cm"] is None
+        assert result["threshold_cm"] is None
+        assert result["scale_cm_per_norm"] is None
 
 
 # ---------------------------------------------------------------------------
-# Posture / Landing v2
+# Vertical Oscillation — cm-aware 모드 (Phase 1)
 # ---------------------------------------------------------------------------
-class TestPostureMetrics:
-    def test_tibia_threshold(self):
-        assert classify_tibia(5.0) == "good_tibia"
-        assert classify_tibia(20.0) == "overreach_tibia"
+class TestVerticalOscillationCmAware:
+    def _make_df(self, hip_amplitude_norm: float, n: int = 100) -> pd.DataFrame:
+        """진폭 hip_amplitude_norm 의 sin hip_y + nose/ankle landmark 포함 df."""
+        rows = [_empty_frame_row(i) for i in range(n)]
+        for i, row in enumerate(rows):
+            v = 0.5 + (hip_amplitude_norm / 2.0) * math.sin(2 * math.pi * i / 30.0)
+            row["left_hip_y"] = v
+            row["right_hip_y"] = v
+            # body_norm_length = 0.5 가 되도록 nose=0.2, ankle=0.7.
+            row["nose_x"] = 0.5
+            row["nose_y"] = 0.2
+            row["nose_z"] = 0.0
+            row["nose_visibility"] = 1.0
+            row["left_ankle_y"] = 0.7
+            row["right_ankle_y"] = 0.7
+        return pd.DataFrame(rows)
 
-    def test_analyze_landing_tibia_synthetic(
-        self, synthetic_running_df, synthetic_strikes
-    ):
-        result = analyze_landing_tibia(synthetic_running_df, synthetic_strikes)
-        assert len(result["per_strike"]) == 6
-        assert result["status_counts"]["good"] == 6
-        assert result["avg_angle"] < 12.0
+    def test_cm_mode_above_10cm_is_high(self, synthetic_strikes):
+        # height=170cm, body_norm_length=0.5 → scale=340 cm/norm.
+        # 진폭 0.04 norm → 13.6cm > 10cm → high.
+        df = self._make_df(hip_amplitude_norm=0.04)
+        result = analyze_vertical_oscillation(
+            df, synthetic_strikes, height_cm=170.0, body_norm_length=0.5
+        )
+        assert result["status"] == "high"
+        assert result["threshold_cm"] == pytest.approx(VO_HIGH_THRESHOLD_CM)
+        assert result["scale_cm_per_norm"] == pytest.approx(340.0)
+        assert result["avg_value_cm"] > VO_HIGH_THRESHOLD_CM
 
-    def test_torso_posture_synthetic(self, synthetic_running_df):
-        result = analyze_torso_posture(synthetic_running_df)
-        assert result["status"] == "neutral_torso"
-        assert 3.0 <= result["avg_angle"] <= 25.0
-        assert classify_torso_lean(0.0) == "too_upright"
-        assert classify_torso_lean(30.0) == "excessive_lean"
+    def test_cm_mode_below_10cm_is_good(self, synthetic_strikes):
+        # 진폭 0.02 norm × 340 = 6.8cm < 10cm → good.
+        # 단, 정규화 fallback 기준(0.06)으로는 비교하지 않음 — cm 임계가 우선.
+        df = self._make_df(hip_amplitude_norm=0.02)
+        result = analyze_vertical_oscillation(
+            df, synthetic_strikes, height_cm=170.0, body_norm_length=0.5
+        )
+        assert result["status"] == "good"
+        assert result["avg_value_cm"] < VO_HIGH_THRESHOLD_CM
 
-    def test_arm_position_synthetic(self, synthetic_running_df):
-        result = analyze_arm_position(synthetic_running_df)
-        assert result["status"] == "good_arm_swing"
-        assert classify_arm_angle(50.0) == "too_tight"
-        assert classify_arm_angle(130.0) == "too_open"
+    def test_cm_mode_taller_runner_more_lenient(self, synthetic_strikes):
+        # 같은 정규화 진폭도 신장 차이로 cm 환산이 달라져야 한다.
+        # 진폭 0.03 norm:
+        #   170cm → 10.2cm (high)
+        #   190cm × body_norm_length=0.5 → scale 380 → 11.4cm (high)
+        # 신장 입력의 효과를 확인하려면 동일 frame body length 가정에서 cm 값 비교.
+        df = self._make_df(hip_amplitude_norm=0.03)
+        r_short = analyze_vertical_oscillation(
+            df, synthetic_strikes, height_cm=160.0, body_norm_length=0.5
+        )
+        r_tall = analyze_vertical_oscillation(
+            df, synthetic_strikes, height_cm=190.0, body_norm_length=0.5
+        )
+        # 같은 norm 진폭에서 키 큰 사람의 cm 값이 더 크다.
+        assert r_tall["avg_value_cm"] > r_short["avg_value_cm"]
+        # height_cm 가 메타데이터에 보존된다.
+        assert r_short["height_cm"] == pytest.approx(160.0)
+        assert r_tall["height_cm"] == pytest.approx(190.0)
 
-    def test_head_position_synthetic(self, synthetic_running_df):
-        result = analyze_head_position(synthetic_running_df)
-        assert result["status"] == "aligned_head"
-        assert classify_head_position(0.3) == "forward_head"
+    def test_per_stride_carries_value_cm(self, synthetic_strikes):
+        df = self._make_df(hip_amplitude_norm=0.04)
+        result = analyze_vertical_oscillation(
+            df, synthetic_strikes, height_cm=170.0, body_norm_length=0.5
+        )
+        assert len(result["per_stride"]) > 0
+        for s in result["per_stride"]:
+            assert s["value_cm"] is not None
+            assert s["value_cm"] == pytest.approx(s["value"] * 340.0)
 
-    def test_analyze_posture_metrics_contains_all_keys(
-        self, synthetic_running_df, synthetic_strikes
-    ):
-        result = analyze_posture_metrics(synthetic_running_df, synthetic_strikes)
-        assert set(result.keys()) == {
-            "landing_tibia",
-            "torso_posture",
-            "arm_position",
-            "head_position",
-        }
+    def test_fallback_when_height_none(self, synthetic_strikes):
+        df = self._make_df(hip_amplitude_norm=0.04)
+        result = analyze_vertical_oscillation(
+            df, synthetic_strikes, height_cm=None, body_norm_length=0.5
+        )
+        assert result["avg_value_cm"] is None
+        assert result["threshold_cm"] is None
+        # 0.04 > 0.06 (norm fallback) 이 아니므로 good.
+        assert result["status"] == "good"
+
+    def test_fallback_when_body_norm_length_nan(self, synthetic_strikes):
+        # body_norm_length 추정 실패 시 fallback. height 만 있어도 cm 변환 불가.
+        df = self._make_df(hip_amplitude_norm=0.07)
+        result = analyze_vertical_oscillation(
+            df, synthetic_strikes, height_cm=170.0, body_norm_length=float("nan")
+        )
+        assert result["avg_value_cm"] is None
+        # 0.07 > 0.06 → fallback 정규화 임계에서는 high.
+        assert result["status"] == "high"
+
+    def test_fallback_when_body_norm_length_zero(self, synthetic_strikes):
+        df = self._make_df(hip_amplitude_norm=0.02)
+        result = analyze_vertical_oscillation(
+            df, synthetic_strikes, height_cm=170.0, body_norm_length=0.0
+        )
+        # 0 length 도 fallback 처리.
+        assert result["scale_cm_per_norm"] is None
+
+
+# ---------------------------------------------------------------------------
+# Body Scale 추정
+# ---------------------------------------------------------------------------
+class TestBodyNormLength:
+    def test_basic_median(self):
+        # nose y=0.1, ankle y=0.9 → length 0.8 across all frames.
+        rows = []
+        for i in range(50):
+            row = _empty_frame_row(i)
+            row["nose_x"] = 0.5
+            row["nose_y"] = 0.1
+            row["nose_z"] = 0.0
+            row["nose_visibility"] = 1.0
+            row["left_ankle_y"] = 0.9
+            row["right_ankle_y"] = 0.9
+            rows.append(row)
+        df = pd.DataFrame(rows)
+        assert compute_body_norm_length(df) == pytest.approx(0.8)
+
+    def test_uses_lower_ankle_robust_to_one_side_nan(self):
+        # 한쪽 ankle 이 NaN 이어도 다른쪽으로 통과 (fmax).
+        rows = []
+        for i in range(20):
+            row = _empty_frame_row(i)
+            row["nose_x"] = 0.5
+            row["nose_y"] = 0.1
+            row["nose_z"] = 0.0
+            row["nose_visibility"] = 1.0
+            row["left_ankle_y"] = float("nan")
+            row["right_ankle_y"] = 0.85
+            rows.append(row)
+        df = pd.DataFrame(rows)
+        assert compute_body_norm_length(df) == pytest.approx(0.75)
+
+    def test_returns_nan_when_no_valid_frame(self):
+        rows = []
+        for i in range(10):
+            row = _empty_frame_row(i)
+            row["nose_x"] = 0.5
+            row["nose_y"] = float("nan")
+            row["nose_z"] = 0.0
+            row["nose_visibility"] = 0.0
+            row["left_ankle_y"] = float("nan")
+            row["right_ankle_y"] = float("nan")
+            rows.append(row)
+        df = pd.DataFrame(rows)
+        assert math.isnan(compute_body_norm_length(df))
+
+    def test_missing_columns_returns_nan(self):
+        # nose 컬럼 자체가 없는 df 도 NaN 반환 (deprecated/legacy 케이스).
+        rows = [_empty_frame_row(i) for i in range(5)]
+        df = pd.DataFrame(rows)
+        assert "nose_y" not in df.columns
+        assert math.isnan(compute_body_norm_length(df))
 
 
 # ---------------------------------------------------------------------------
@@ -473,7 +549,6 @@ class TestAnalysisResultModel:
         vosc = analyze_vertical_oscillation(
             synthetic_running_df, synthetic_strikes
         )
-        posture = analyze_posture_metrics(synthetic_running_df, synthetic_strikes)
         asym = analyze_asymmetry(synthetic_strikes, knee, vosc)
 
         result = AnalysisResult(
@@ -484,12 +559,10 @@ class TestAnalysisResultModel:
                 "foot_strike": foot,
                 "overstriding": over,
                 "vertical_oscillation": vosc,
-                **posture,
             },
             asymmetry=asym,
             danger_timestamps=[DangerTimestamp(time_sec=1.23, type="heel_strike")],
         )
         payload = result.model_dump_json()
         assert "knee_flexion" in payload
-        assert "torso_posture" in payload
         assert "heel_strike" in payload

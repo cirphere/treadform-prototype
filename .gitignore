@@ -1,0 +1,24 @@
+# 로컬 보관용 추가 페이스 샘플 (리포 경량화). pace530.mp4 만 추적.
+server/pace6.mp4
+server/pace630.mp4
+server/pace7.mp4
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# 분석 산출물 / 런타임
+server/storage/
+server/uploads/
+server/analysis_result.json
+*.log
+out/
+
+# 런타임 다운로드 캐시 (mediapipe 모델, 자동 재다운로드)
+server/.models/
+
+# 분석 진단 산출물 (재실행 가능, .py 만 추적)
+server/scripts/*.json
+server/scripts/*.png

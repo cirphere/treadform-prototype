@@ -6,7 +6,6 @@
     knee_angle, knee_status,
     foot_strike_angle, foot_strike_status,
     overstride_distance, overstride_status,
-    tibia_angle, tibia_status,
     hip_y, is_foot_strike
 
 `foot` 컬럼은 해당 프레임에 착지가 있었던 발 ("left" | "right") 이며 착지가
@@ -35,8 +34,6 @@ _CSV_COLUMNS = [
     "foot_strike_status",
     "overstride_distance",
     "overstride_status",
-    "tibia_angle",
-    "tibia_status",
     "hip_y",
     "is_foot_strike",
 ]
@@ -55,7 +52,6 @@ def _strike_lookup(metrics: dict) -> dict[int, dict]:
     _put("knee_flexion", "knee")
     _put("foot_strike", "foot_strike")
     _put("overstriding", "overstride")
-    _put("landing_tibia", "tibia")
     return lookup
 
 
@@ -110,8 +106,6 @@ def generate_csv_report(
                 "foot_strike_status": "",
                 "overstride_distance": float("nan"),
                 "overstride_status": "",
-                "tibia_angle": float("nan"),
-                "tibia_status": "",
                 "hip_y": hip_y,
                 "is_foot_strike": False,
             })
@@ -120,7 +114,6 @@ def generate_csv_report(
         knee = slot.get("knee", {})
         fs = slot.get("foot_strike", {})
         over = slot.get("overstride", {})
-        tibia = slot.get("tibia", {})
         rows.append({
             "frame_idx": frame_idx,
             "time_sec": round(time_sec, 4),
@@ -131,8 +124,6 @@ def generate_csv_report(
             "foot_strike_status": fs.get("status", ""),
             "overstride_distance": over.get("distance", float("nan")),
             "overstride_status": over.get("status", ""),
-            "tibia_angle": tibia.get("angle", float("nan")),
-            "tibia_status": tibia.get("status", ""),
             "hip_y": hip_y,
             "is_foot_strike": True,
         })

@@ -1514,6 +1514,7 @@ const REC_DURATION = 8.0;
 // produce 4 events across the 8s clip so 결과 reads believably.
 const DANGER_TIMES = [1.4, 3.2, 5.0, 6.8];
 const DANGER_WIN   = 0.55; // seconds the danger pose holds after trigger
+const DANGER_WARN_THRESHOLD = 4; // 위험 N건 이상이면 '주의' 판정 (정상/주의 임계)
 const API_ORIGIN = (() => {
   const host = window.location.hostname || '127.0.0.1';
   const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
@@ -1563,14 +1564,34 @@ function makeMetricCards(resultData, danger) {
   const foot = m.foot_strike || {};
   const over = m.overstriding || {};
   const osc = m.vertical_oscillation || {};
-  const tibia = m.landing_tibia || {};
-  const torso = m.torso_posture || {};
-  const arm = m.arm_position || {};
-  const head = m.head_position || {};
   const footCounts = foot.status_counts || {};
   const heelCount = footCounts.heel ?? danger ?? 0;
   const overCount = over.status_counts?.over ?? 0;
-  const tibiaOverCount = tibia.status_counts?.overreach ?? 0;
+
+  // 케이던스: cadence_spm 은 항상, expected_*/hint 는 pace 입력 시에만 들어온다.
+  const summary = r.summary || {};
+  const cadenceSpm = Number(summary.cadence_spm);
+  const hasCadence = Number.isFinite(cadenceSpm) && cadenceSpm > 0;
+  const cadHint = summary.cadence_hint;            // 'optimal' | 'low' | 'high' | undefined
+  const cadLo = summary.expected_cadence_min;
+  const cadHi = summary.expected_cadence_max;
+  const hasBand = Number.isFinite(Number(cadLo)) && Number.isFinite(Number(cadHi));
+  let cadenceDelta = '분당 착지수';
+  let cadenceTone = 'success';
+  if (cadHint && hasBand) {
+    const band = `${cadLo}–${cadHi} spm`;
+    if (cadHint === 'low') { cadenceDelta = `목표보다 낮음 ${band}`; cadenceTone = 'warn'; }
+    else if (cadHint === 'high') { cadenceDelta = `목표보다 높음 ${band}`; cadenceTone = 'warn'; }
+    else { cadenceDelta = `목표 ${band}`; cadenceTone = 'success'; }
+  }
+
+  // 수직 진폭: 키 입력 시 cm-aware(avg_value_cm), 아니면 정규화값 fallback.
+  // avg_value_cm 은 키 미입력 시 null → Number(null)=0 이 finite 로 잡히므로 명시적 null 가드.
+  const oscCm = osc.avg_value_cm == null ? NaN : Number(osc.avg_value_cm);
+  const oscValue = Number.isFinite(oscCm)
+    ? `${oscCm.toFixed(1)} cm`
+    : formatCm(osc.avg_value);
+
   return [
     {
       id: 'speed',
@@ -1578,6 +1599,13 @@ function makeMetricCards(resultData, danger) {
       value: speed ? `${speed.toFixed(1)} km/h` : '입력 필요',
       delta: speed ? '트레드밀 입력값' : '결과 비교 기준',
       tone: speed ? 'success' : 'warn',
+    },
+    {
+      id: 'cadence',
+      label: '케이던스',
+      value: hasCadence ? `${Math.round(cadenceSpm)} spm` : '측정 중',
+      delta: cadenceDelta,
+      tone: hasCadence ? cadenceTone : 'warn',
     },
     {
       id: 'knee',
@@ -1603,40 +1631,15 @@ function makeMetricCards(resultData, danger) {
     {
       id: 'osc',
       label: '수직 진폭',
-      value: formatCm(osc.avg_value),
+      value: oscValue,
       delta: osc.status === 'good' ? '효율적' : '확인 필요',
       tone: statusTone(osc.status),
     },
-    {
-      id: 'tibia',
-      label: '착지 정강이',
-      value: tibiaOverCount > 0 ? `${tibiaOverCount}회` : formatDegree(tibia.avg_angle),
-      delta: '전방 착지',
-      tone: tibiaOverCount > 0 ? 'warn' : statusTone(tibia.status),
-    },
-    {
-      id: 'torso',
-      label: '몸통 자세',
-      value: formatDegree(torso.avg_angle),
-      delta: torso.status === 'neutral_torso' ? '안정' : '확인 필요',
-      tone: statusTone(torso.status),
-    },
-    {
-      id: 'arm',
-      label: '팔 위치',
-      value: formatDegree(arm.avg_angle),
-      delta: arm.status === 'good_arm_swing' ? '자연스러움' : '리듬 확인',
-      tone: statusTone(arm.status),
-    },
-    {
-      id: 'head',
-      label: '머리 위치',
-      value: formatRatioPct(head.avg_ratio),
-      delta: head.status === 'aligned_head' ? '정렬 양호' : '전방 쏠림',
-      tone: statusTone(head.status),
-    },
   ];
 }
+
+// 핵심 3지표(크게) vs 나머지(작게) 구분용. makeMetricCards 의 id 와 일치해야 한다.
+const PRIMARY_METRIC_IDS = ['knee', 'strike', 'stride'];
 
 function makeRunningStyle(resultData, metricCards) {
   const r = resultData?.analysis_result || {};
@@ -1840,7 +1843,7 @@ function makeImprovementItems(resultData, metricCards) {
 
 function makeConfidenceDetails(resultData, confidence) {
   const r = resultData?.analysis_result || {};
-  const warnings = resultData?.warnings || [];
+  const warnings = r.warnings || [];
   const fps = r.summary?.fps;
   const duration = r.summary?.duration_sec;
   const totalStrikes = r.summary?.total_strikes;
@@ -1907,16 +1910,13 @@ function makeDrillItems(improvementItems) {
 }
 
 function scoreFromAnalysis(resultData, danger) {
+  // 단일 점수 공식 — 실측 지표 기반. resultData 가 없으면 위험 건수만으로 산출.
   const r = resultData?.analysis_result || {};
   const m = r.metrics || {};
   const heel = m.foot_strike?.status_counts?.heel ?? 0;
   const over = m.overstriding?.status_counts?.over ?? 0;
-  const tibia = m.landing_tibia?.status_counts?.overreach ?? 0;
-  const torsoBad = ['too_upright', 'excessive_lean'].includes(m.torso_posture?.status) ? 1 : 0;
-  const armBad = ['too_tight', 'too_open'].includes(m.arm_position?.status) ? 1 : 0;
-  const headBad = m.head_position?.status === 'forward_head' ? 1 : 0;
-  const warnings = resultData?.warnings?.length || 0;
-  return Math.max(42, Math.min(98, 96 - (danger || 0) * 4 - heel * 3 - over * 4 - tibia * 3 - (torsoBad + armBad + headBad) * 4 - warnings * 6));
+  const warnings = r.warnings?.length || 0;
+  return Math.max(42, Math.min(98, 96 - (danger || 0) * 4 - heel * 3 - over * 4 - warnings * 6));
 }
 
 function RecordingScreen({ visible, onDone }) {
@@ -2835,14 +2835,31 @@ function ResultScreen({ visible, danger, confidence = 'high', resultData, onBack
           letterSpacing: '-0.01em',
         }}>속도 기준 포함</div>
       </div>
+      {/* 핵심 3지표 — 크게 */}
+      <div style={{
+        position: 'relative',
+        marginTop: 8,
+        display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8,
+      }}>
+        {PRIMARY_METRIC_IDS
+          .map(id => metricCards.find(c => c.id === id))
+          .filter(Boolean)
+          .map(m => (
+            <PrimaryMetricCard key={m.id} tone={m.tone} label={m.label} value={m.value} delta={m.delta}/>
+          ))}
+      </div>
+
+      {/* 나머지 지표 — 작게 */}
       <div style={{
         position: 'relative',
         marginTop: 8,
         display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
       }}>
-        {metricCards.map(m => (
-          <IndicatorChip key={m.id} tone={m.tone} label={m.label} value={m.value}/>
-        ))}
+        {metricCards
+          .filter(m => !PRIMARY_METRIC_IDS.includes(m.id))
+          .map(m => (
+            <IndicatorChip key={m.id} tone={m.tone} label={m.label} value={m.value}/>
+          ))}
       </div>
 
       <div style={{
@@ -2868,6 +2885,43 @@ function ResultScreen({ visible, danger, confidence = 'high', resultData, onBack
         </button>
       </div>
       </div>
+    </div>
+  );
+}
+
+// 핵심 3지표용 큰 카드 — 라벨 위, 값 크게, 하단 보조 텍스트.
+function PrimaryMetricCard({ tone, label, value, delta }) {
+  const fg = tone === 'success' ? 'var(--c-success)'
+           : tone === 'warn'    ? 'var(--c-warn)'
+                                : 'var(--c-danger)';
+  return (
+    <div style={{
+      background: 'var(--c-bg)', border: '1px solid var(--c-bd)',
+      borderRadius: 14, padding: '12px 11px',
+      display: 'flex', flexDirection: 'column', gap: 7, minHeight: 92,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{
+          width: 7, height: 7, borderRadius: 4, background: fg, flexShrink: 0,
+        }}/>
+        <span style={{
+          fontSize: 11, fontWeight: 600, color: 'var(--c-text-2)',
+          letterSpacing: '-0.01em', whiteSpace: 'nowrap',
+          overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>{label}</span>
+      </div>
+      <div style={{
+        fontSize: 17, fontWeight: 800, lineHeight: 1.1,
+        color: 'var(--c-text)', letterSpacing: '-0.02em',
+        fontVariantNumeric: 'tabular-nums',
+      }}>{value}</div>
+      {delta ? (
+        <div style={{
+          marginTop: 'auto', fontSize: 10, fontWeight: 650,
+          color: 'var(--c-text-3)', letterSpacing: '-0.01em',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>{delta}</div>
+      ) : null}
     </div>
   );
 }
@@ -3356,10 +3410,7 @@ function ImprovementCard({ items }) {
 function BrowserAnalysisOverlay({ metricCards }) {
   const knee = metricCards.find(m => m.id === 'knee')?.value || '측정';
   const strike = metricCards.find(m => m.id === 'strike')?.value || '착지 분석';
-  const tibia = metricCards.find(m => m.id === 'tibia')?.value || '측정';
-  const torso = metricCards.find(m => m.id === 'torso')?.value || '측정';
-  const arm = metricCards.find(m => m.id === 'arm')?.value || '측정';
-  const head = metricCards.find(m => m.id === 'head')?.value || '측정';
+  const stride = metricCards.find(m => m.id === 'stride')?.value || '측정';
   return (
     <div style={{
       position: 'absolute',
@@ -3389,10 +3440,7 @@ function BrowserAnalysisOverlay({ metricCards }) {
         </g>
       </svg>
       <OverlayAngleLabel label="무릎" value={knee} top={50} right={12}/>
-      <OverlayAngleLabel label="정강이" value={tibia} top={132} right={28} tone="warn"/>
-      <OverlayAngleLabel label="몸통" value={torso} top={86} left={18}/>
-      <OverlayAngleLabel label="팔" value={arm} top={102} right={106}/>
-      <OverlayAngleLabel label="머리" value={head} top={20} right={24}/>
+      <OverlayAngleLabel label="보폭" value={stride} top={104} right={20} tone="warn"/>
       <OverlayAngleLabel label="착지" value={strike} bottom={64} left={14} tone="success"/>
     </div>
   );
@@ -3888,9 +3936,9 @@ function RecordRow({ card, onClick, border }) {
   const fg = card.status === 'success' ? 'var(--c-success)'
            : card.status === 'warn' ? 'var(--c-warn)'
            : 'var(--c-danger)';
-  // Demo metric values — in production these'd come off the card object.
-  const heel = card.danger ?? (card.status === 'warn' ? 6 : 3);
-  const knee = card.knee ?? (card.status === 'warn' ? 162 : 168);
+  // 실측 heel/knee 만 사용. 없으면 '측정 중' (하드코딩 대체값 금지).
+  const heel = Number.isFinite(card.heel) ? `뒤꿈치 ${card.heel}회` : '뒤꿈치 측정 중';
+  const knee = Number.isFinite(card.knee) ? `무릎 ${card.knee}°` : '무릎 측정 중';
   const speed = card.speed ? `${Number(card.speed).toFixed(1)}km/h · ` : '';
   return (
     <button onClick={onClick} style={{
@@ -3925,7 +3973,7 @@ function RecordRow({ card, onClick, border }) {
         <div style={{
           marginTop: 2, fontSize: 11, fontWeight: 500,
           color: 'var(--c-text-3)', letterSpacing: '-0.01em',
-        }}>{speed}뒤꿈치 {heel}회 · 무릎 {knee}° · 8초</div>
+        }}>{speed}{heel} · {knee} · 8초</div>
       </div>
       <Chevron size={16} color="var(--c-text-3)"/>
     </button>
@@ -3991,7 +4039,7 @@ function WebStatusToast({ tone, title, message, onClose }) {
   );
 }
 
-function UploadChoiceSheet({ open, speed, onSpeedChange, onCamera, onGallery, onClose }) {
+function UploadChoiceSheet({ open, speed, onSpeedChange, height, onHeightChange, onCamera, onGallery, onClose }) {
   return (
     <div style={{
       position: 'absolute',
@@ -4115,6 +4163,69 @@ function UploadChoiceSheet({ open, speed, onSpeedChange, onCamera, onGallery, on
           </div>
         </div>
 
+        <div style={{
+          marginTop: 12,
+          borderRadius: 18,
+          background: 'rgba(255,255,255,0.08)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          padding: '12px 14px',
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+          }}>
+            <div>
+              <div style={{
+                fontSize: 12,
+                fontWeight: 800,
+                color: 'rgba(255,255,255,0.92)',
+                letterSpacing: '-0.01em',
+              }}>키</div>
+              <div style={{
+                marginTop: 2,
+                fontSize: 10,
+                fontWeight: 650,
+                color: 'rgba(255,255,255,0.52)',
+                letterSpacing: '-0.01em',
+              }}>수직 진폭을 cm로 환산하는 데 사용됩니다</div>
+            </div>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 7,
+            }}>
+              <button
+                onClick={() => onHeightChange(Math.max(120, Math.round(height) - 1))}
+                style={speedStepButtonStyle()}
+                aria-label="키 낮추기">−</button>
+              <div style={{
+                minWidth: 82,
+                height: 34,
+                borderRadius: 999,
+                background: 'var(--c-bg)',
+                color: 'var(--c-text)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 14,
+                fontWeight: 950,
+                fontVariantNumeric: 'tabular-nums',
+              }}>{Math.round(height)}<span style={{
+                marginLeft: 3,
+                fontSize: 10,
+                fontWeight: 800,
+                color: 'var(--c-text-2)',
+              }}>cm</span></div>
+              <button
+                onClick={() => onHeightChange(Math.min(210, Math.round(height) + 1))}
+                style={speedStepButtonStyle()}
+                aria-label="키 높이기">+</button>
+            </div>
+          </div>
+        </div>
+
         <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
           <button onClick={onCamera} style={choiceButtonStyle('var(--c-primary)', 'transparent')}>
             <CameraIcon size={30} color="var(--c-bg)"/>
@@ -4215,6 +4326,7 @@ function App() {
   const [analysisTitle, setAnalysisTitle] = useState('영상을 전송하고 있어요');
   const [analysisSubtitle, setAnalysisSubtitle] = useState('안전한 분석 서버로 보내는 중');
   const [treadmillSpeed, setTreadmillSpeed] = useState(9.5);
+  const [userHeightCm, setUserHeightCm] = useState(170);
 
   // Trainer-mode member selection. Persists across mode toggles so flipping
   // runner ↔ trainer doesn’t reset who the trainer was working with.
@@ -4225,10 +4337,12 @@ function App() {
   // Recent measurements — seeded with two so the spec's "78점/62점"
   // demo cards are present on first load, and the carousel has
   // somewhere to grow when STEP 5 completes.
+  // 초기 데모 카드 (프로토타입 시드 데이터). heel/knee/danger 를 명시해
+  // RecordRow 가 하드코딩 대체값 없이 그대로 표시하도록 한다.
   const [cards, setCards] = useState(() => ([
-    { id: 1, status: 'success', label: '정상', score: 78, date: '5월 22일' },
-    { id: 2, status: 'warn',    label: '주의', score: 62, date: '5월 19일' },
-    { id: 3, status: 'success', label: '정상', score: 81, date: '5월 15일' },
+    { id: 1, status: 'success', label: '정상', score: 78, date: '5월 22일', danger: 2, heel: 3, knee: 168 },
+    { id: 2, status: 'warn',    label: '주의', score: 62, date: '5월 19일', danger: 5, heel: 6, knee: 162 },
+    { id: 3, status: 'success', label: '정상', score: 81, date: '5월 15일', danger: 1, heel: 2, knee: 170 },
   ]));
 
   // For result screen — danger count of the most recently-captured clip.
@@ -4353,6 +4467,14 @@ function App() {
     try {
       const body = new FormData();
       body.append('video', file);
+      // 트레드밀 속도를 함께 전송 → 서버가 pace 로 환산해 pace-aware cadence 분석.
+      if (Number.isFinite(treadmillSpeed) && treadmillSpeed > 0) {
+        body.append('treadmill_speed_kmh', String(treadmillSpeed));
+      }
+      // 키(cm) 전송 → 수직 진폭이 cm-aware 모드로 동작 (avg_value_cm).
+      if (Number.isFinite(userHeightCm) && userHeightCm > 0) {
+        body.append('user_height_cm', String(Math.round(userHeightCm)));
+      }
 
       const uploadRes = await fetch(`${API_ORIGIN}/api/upload`, {
         method: 'POST',
@@ -4457,12 +4579,14 @@ function App() {
       return;
     }
     const dangerCount = lastDanger;
-    const score = latestResult ? scoreFromAnalysis(latestResult, dangerCount) : Math.max(40, 100 - dangerCount * 9 - 4);
-    const status = dangerCount >= 4 ? 'warn' : 'success';
-    const label  = dangerCount >= 4 ? '주의' : '정상';
+    const score = scoreFromAnalysis(latestResult, dangerCount);
+    const status = dangerCount >= DANGER_WARN_THRESHOLD ? 'warn' : 'success';
+    const label  = dangerCount >= DANGER_WARN_THRESHOLD ? '주의' : '정상';
     const date   = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
-    const metricCards = makeMetricCards(latestResult, dangerCount);
-    const kneeCard = metricCards.find(card => card.id === 'knee');
+    // 히스토리 행에 표시할 실측 heel/knee 를 resultData 에서 직접 추출 (없으면 undefined).
+    const rm = latestResult?.analysis_result?.metrics || {};
+    const realHeel = rm.foot_strike?.status_counts?.heel;
+    const realKnee = rm.knee_flexion?.avg_angle;
     const newCard = {
       id: Date.now(),
       status,
@@ -4472,7 +4596,8 @@ function App() {
       danger: dangerCount,
       resultData: latestResult,
       speed: getTreadmillSpeed(latestResult) || treadmillSpeed,
-      knee: Number.parseInt(kneeCard?.value, 10) || undefined,
+      heel: Number.isFinite(realHeel) ? realHeel : undefined,
+      knee: Number.isFinite(realKnee) ? Math.round(realKnee) : undefined,
     };
     setCards(prev => [newCard, ...prev]);
     setScreen('home');
@@ -4568,7 +4693,7 @@ function App() {
         <ResultScreen
           visible={screen === 'result'}
           danger={lastDanger}
-          confidence={latestResult?.confidence || "high"}
+          confidence={latestResult?.analysis_result?.confidence || latestResult?.confidence || "high"}
           resultData={latestResult}
           onBack={finishAndReturn}/>
 
@@ -4587,6 +4712,8 @@ function App() {
           open={uploadSheetOpen}
           speed={treadmillSpeed}
           onSpeedChange={setTreadmillSpeed}
+          height={userHeightCm}
+          onHeightChange={setUserHeightCm}
           onCamera={() => {
             setPickerOpen(false);
             setUploadSheetOpen(false);

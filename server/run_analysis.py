@@ -3,7 +3,7 @@ End-to-end 분석 실행 스크립트.
 
 사용:
     python run_analysis.py [video_path]
-기본 경로: server/running_video.mp4
+기본 경로: server/pace530.mp4
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def main() -> int:
     )
 
     here = Path(__file__).parent
-    video = Path(sys.argv[1]) if len(sys.argv) > 1 else here / "running_video.mp4"
+    video = Path(sys.argv[1]) if len(sys.argv) > 1 else here / "pace530.mp4"
     if not video.exists():
         print(f"[ERROR] video not found: {video}")
         return 1

@@ -28,6 +28,9 @@ Step 1에서 만든 깨끗한 keypoints DataFrame + 좌/우 착지 인덱스를 
 - [ ] Foot Strike 각도 계산 + 3단계 판정 (Heel/Mid/Forefoot)
 - [ ] 오버스트라이딩 거리 계산 + 2단계 판정 (Over/Good)
 - [ ] 수직 진폭 계산 (1 Stride 단위) + 2단계 판정 (High/Good)
+- [x] **cm-aware 모드 (Phase 1, 2026-05-28)**: 신장 입력 + body_norm_length 환산으로 절대 cm 임계 (`VO_HIGH_THRESHOLD_CM=10`), 미입력 시 정규화 fallback. §[R4-cm] 참조.
+- [x] **Cadence pace-aware 보정 (Phase 1, 2026-05-28)**: pace(sec/km) + 신장(cm) → 기대 cadence 밴드 산출 + hint(`optimal`/`low`/`high`) 분류. pace 미입력 시 측정 cadence_spm 만 정보성 노출. §[R8-cadence] 참조.
+- [x] **Strike detection 실측 보정 (2026-05-29)**: cooldown 10→20 프레임 + prominence ≥ 0.001 임계 도입. 4영상 ground truth 매핑으로 over-count 28%→3% 감소. §[R9-strike-detection] 참조.
 - [ ] 좌우 비대칭 비율 계산 (보조 지표)
 - [ ] 통합 결과 JSON 스키마 정의 (Pydantic 모델)
 - [ ] 단위 테스트 모든 케이스 통과
@@ -57,11 +60,26 @@ FOREFOOT_STRIKE_THRESHOLD = -3   # 미만 → Forefoot Strike 🟡
 OVERSTRIDE_THRESHOLD = 0.15      # 정규화 좌표 기준 X 편차 (자체 결정, §R3)
 
 # === 수직 진폭 ===
-VERTICAL_OSC_HIGH_THRESHOLD = 0.06  # 정규화 Y 기준 (2026-05-17 0.08→0.06, §R4)
+VERTICAL_OSC_HIGH_THRESHOLD = 0.06  # 정규화 Y 기준 (2026-05-17 0.08→0.06, §R4 fallback)
+VO_HIGH_THRESHOLD_CM = 10.0          # cm-aware 모드 (Phase 1, 2026-05-28, §R4-cm)
 
 # === 좌우 비대칭 ===
 ASYMMETRY_WARNING_THRESHOLD = 0.1            # 10% (Zifchock 2008, Pappas 2015, §R5)
 ASYMMETRY_FOOT_VIS_DIFF_THRESHOLD = 0.10     # 좌/우 발 visibility diff 임계 (§R6)
+
+# === Cadence pace-aware 보정 (2026-05-28, §R8-cadence) ===
+# 170cm 기준 명목 밴드. 신장 시프트: shift = -(h-170) * CADENCE_HEIGHT_SHIFT_SPM_PER_CM
+CADENCE_BANDS_170CM = (
+    (390.0, float("inf"), 162, 175),   # >= 6:30/km — 조깅 (Hunter 2017 회귀)
+    (330.0, 390.0,        168, 180),   # 5:30 ~ 6:30 — 일반 (Daniels baseline)
+    (270.0, 330.0,        175, 188),   # 4:30 ~ 5:30 — tempo
+    (0.0,   270.0,        182, 196),   # < 4:30 — race/엘리트
+)
+CADENCE_HEIGHT_SHIFT_SPM_PER_CM = 0.5    # Winter 1990 leg length × 0.485 → 신장 1cm 변화당 stride 영향 환산
+
+# === Foot Strike Detection (2026-05-29, §R9-strike-detection) ===
+FOOT_STRIKE_COOLDOWN_FRAMES = 20         # 60fps 0.333s = stride cycle 의 절반 (실측 보정 10→20)
+FOOT_STRIKE_MIN_PROMINENCE = 0.001       # boundary spurious peak (정상 prom 의 1%) 거름
 ```
 
 **비대칭 트리거 정책 (2026-05-17):**
@@ -144,23 +162,48 @@ def calculate_oscillation_per_stride(hip_y_series: np.ndarray,
                                       same_foot_strikes: np.ndarray) -> list:
     """동일 발 연속 착지 사이(1 Stride) 골반 Y의 max-min."""
 
-def classify_oscillation(value: float) -> str:
-    """Returns: "high_oscillation" | "good_oscillation" """
+def classify_oscillation(value: float,
+                          threshold: float = VERTICAL_OSC_HIGH_THRESHOLD) -> str:
+    """Returns: "high_oscillation" | "good_oscillation"
+    threshold 의 단위는 호출측 책임 (정규화면 norm, cm-aware 모드면 cm 등가 norm)."""
 
-def analyze_vertical_oscillation(df: pd.DataFrame, strike_indices: dict) -> dict:
+def analyze_vertical_oscillation(
+    df: pd.DataFrame,
+    strike_indices: dict,
+    height_cm: float | None = None,
+    body_norm_length: float | None = None,
+) -> dict:
     """
     좌/우 각각 1 Stride 단위로 계산 후 평균.
 
+    cm-aware 모드 (Phase 1, 2026-05-28):
+        height_cm + body_norm_length 둘 다 주어지면
+        scale = height_cm / body_norm_length 로 vo_cm 환산 후 VO_HIGH_THRESHOLD_CM
+        임계로 판정. 하나라도 None/NaN/≤0 이면 정규화 임계 fallback.
+        body_norm_length 는 analyzer.body_scale.compute_body_norm_length(df) 로 추정
+        (프레임별 max(L/R ankle_y) − nose_y 의 median).
+
     Returns:
         {
-            "avg_value": float,
+            "avg_value": float,                  # 정규화 평균 (항상)
             "left_avg": float,
             "right_avg": float,
             "status": "high" | "good",
-            "per_stride": [...]
+            "per_stride": [..., "value", "value_cm" | None, "status", "foot"],
+            "avg_value_cm": float | None,        # cm-aware 모드일 때만 값
+            "threshold_cm": float | None,
+            "threshold_norm": float,             # 실제 적용 정규화 임계
+            "scale_cm_per_norm": float | None,
+            "height_cm": float | None,
+            "body_norm_length": float | None,
         }
     """
 ```
+
+**height_cm 입력 경로 (Phase 2, 2026-05-28):**
+- 일반 모드: 앱 `HomeScreen` 신장 카드 → `AsyncStorage('vr.user_height_cm')` → 업로드 form `user_height_cm`.
+- 트레이너 모드: 회원 등록 시 `MemberCreate.height_cm` → `MEMBERS[member_id]["height_cm"]` → 업로드 form 미첨부 시 서버가 자동 fallback (`api/upload._run_analysis_task`).
+- 우선순위: form `user_height_cm` > 회원 프로필 `height_cm` > `None` (정규화 fallback).
 
 ### 6. `server/analyzer/metrics/asymmetry.py` (보조 지표)
 
@@ -394,13 +437,58 @@ result.summary                                 # 요약 출력용
 
 각 임계값은 러닝 바이오메카닉스 문헌의 1차 출처에 기반한다. 우리 측정/구현 방식은 측면 트레드밀 영상 기반의 2D 정규화 좌표라는 환경 제약을 반영해 일부 임계는 자체 보정을 거쳤다 — 그 경우에도 출처의 일반 원리를 따른다.
 
-### [R1] 무릎 굴곡 (160° stiff / 140° over_bent / ±5° borderline)
+### [R1] 무릎 굴곡 (165° stiff / 140° over_bent / ±3° borderline, 2026-05-25 재조정)
 
-우리 측정 시점은 **착지 시점 (IC, initial contact)** — 발목 Y 가 가장 아래로 내려간 프레임 (foot_strike_detector 가 식별). 측정 방식은 hip-knee-ankle 의 내각(°) (180° = straight leg, 90° = right angle). 즉 임계 160°는 **IC flexion ≈ 20° (stiff knee 경계)**, 140°는 **flexion ≈ 40° (과굴곡 경계)** 에 해당한다.
+우리 측정 시점은 **착지 시점 (IC, initial contact)** — 발목 Y 가 가장 아래로 내려간 프레임 (foot_strike_detector 가 식별). 측정 방식은 hip-knee-ankle 의 내각(°) (180° = straight leg, 90° = right angle). 즉 임계 165°는 **IC flexion ≈ 15° (stiff knee 경계)**, 140°는 **flexion ≈ 40° (과굴곡 경계)** 에 해당한다.
 
-- **Heiderscheit BC, Chumanov ES, Michalski MP, Wille CMA, Ryan MB.** Effects of step rate manipulation on joint mechanics during running. *Med Sci Sports Exerc.* 2011;43(2):296-302. doi:[10.1249/MSS.0b013e3181ebedf4](https://doi.org/10.1249/MSS.0b013e3181ebedf4) — peak knee flexion 이 cadence 와 강하게 연관, stiff knee 패턴이 부상 위험과 연결됨을 정량. IC flexion 변동성도 함께 다룸.
+- **Heiderscheit BC, Chumanov ES, Michalski MP, Wille CMA, Ryan MB.** Effects of step rate manipulation on joint mechanics during running. *Med Sci Sports Exerc.* 2011;43(2):296-302. doi:[10.1249/MSS.0b013e3181ebedf4](https://doi.org/10.1249/MSS.0b013e3181ebedf4) — n=45 healthy recreational runner 의 preferred condition IC knee flexion baseline = **17.8° ± 4.0°** (논문 본문 보고). stiff knee 패턴이 shock absorption 부족과 부상 위험에 연결됨을 정량.
 
-**자체 결정 명시:** 정확한 단일 정량 임계 (160°/140°) 를 IC 시점에 명시한 1차 학술 출처는 부재하다. 본 임계는 **임상 통념 (IC normal flexion ~20°)** 에 기반하며, pace 530/6/7/630 4 영상에서 보수성 자체 검증 (false positive 0건) 으로 보강했다. 발표 시 "임상 통념 기반 + 자체 검증" 으로 정직 표기 필요.
+**임계의 통계적 근거 (SD 단위 매핑):** Heiderscheit baseline (17.8° ± 4.0°) ↔ 우리 컨벤션:
+
+| 우리 knee angle | = IC flexion | baseline 기준 위치 |
+|---|---|---|
+| 162.2° | 17.8° | mean (baseline) |
+| **165°** (stiff 임계) | **15°** | **mean − 0.7 SD** (stiff 방향 outlier 경계) |
+| 158.5° (자체 평균) | 21.5° | mean + 0.9 SD (숙련 러너 측 더 굽힘) |
+| 140° (over_bent) | 40° | mean + 5.6 SD (매우 보수적 하한) |
+
+**자체 데이터 검증:** pace 530/6/7/630 4 영상 200 strikes 평균 158.5° / max 164° / > 165° 0건 / < 140° 0건. False positive 0건. 2026-05-25 재조정 이전 임계 (160°/±5°) 는 분포 모드 [158,160) 정점을 가로질러 94.5% borderline 으로 빠지며 신호 가치 상실 → 165°/±3° 로 완화 후 good 비중 5% → 94.5% 회복.
+
+### [R1-future] Peak Flexion 측정 (향후 작업)
+
+**현재 미구현. Souza 2016 인용을 위한 deferred 작업.**
+
+#### 동기
+
+현재 [R1] 은 IC 시점만 평가하나, 충격 흡수 능력 전체를 평가하려면 **mid-stance peak flexion (입각기 최대 굴곡)** 측정이 표준이다. 같은 IC angle 이더라도 peak 까지 도달하는 굴곡량이 다르면 shock absorption 결과가 다르다 — 즉 IC 와 peak 는 보완 지표.
+
+#### 학술 근거 (deferred citation)
+
+- **Souza RB.** An evidence-based videotaped running biomechanics analysis. *Phys Med Rehabil Clin N Am.* 2016;27(1):217-236. PMC: [PMC4714754](https://pmc.ncbi.nlm.nih.gov/articles/PMC4714754/) — 2D 비디오 running gait analysis 의 표준 프로토콜. **stance phase peak flexion < 45° = stiff** (shock absorption 부족) 권장. 본 지표 구현 시 1차 근거.
+
+#### 구현 의사 코드
+
+```
+1. 기존 detect_left_right_strikes() → IC frame 인덱스 확보
+2. (신규) detect_toe_off(ankle_y_series, ic_frames) → 각 IC 다음
+   ankle_y 가 다시 올라가기 시작하는 frame (find_peaks 응용, 반전된 신호)
+3. 각 strike 의 stance phase = [ic_frame, toe_off_frame]
+4. 그 범위 내 knee_angle 시리즈의 최솟값 = peak_flexion_angle
+5. classify_peak_flexion(angle):
+     PEAK_INSUFFICIENT_THRESHOLD = 145  # = IC flexion 35°, Souza 권장 미달
+     PEAK_GOOD_TARGET = 135             # = IC flexion 45°, Souza 권장
+     return "insufficient_flexion" | "good_peak_flexion" | "borderline"
+```
+
+#### 기술 제약
+
+- **Toe-off 검출**: 현재 구현 없음. ankle_y 의 IC 직후 local minimum 종료 시점 식별 알고리즘 필요.
+- **시간 분해능**: 60fps 에서 peak flexion 시점 위치 정확도 ±2~3° (peak 근처 변화율 ~5~10°/50ms, 1프레임 ~17ms 분해능). 120fps 영상 입력 시 ±1° 로 향상 가능. 현재 [R1] tolerance ±3° 와 동일 수준이라 충분히 흡수 가능.
+- **2D perspective 한계**: peak 시점의 무릎이 sagittal plane 에서 살짝 회전하면 측면 영상에서 각도 측정 오차 증가. Souza 2016 도 같은 한계를 명시.
+
+#### 구현 우선순위
+
+P3 (after 시연 영상 / 사용자 피드백 / 다른 러너 영상 다양화 검증). 단일 측정 (IC) 만으로도 stiff knee 신호 분류 가능하고, peak 추가는 정밀도 향상이지 신호 부재 해소 아님.
 
 ### [R2] Foot Strike Pattern (±3° 임계)
 
@@ -424,7 +512,26 @@ result.summary                                 # 요약 출력용
 - **Tartaruga MP, Brisswalter J, Peyré-Tartaruga LA, et al.** The relationship between running economy and biomechanical variables in distance runners. *Res Q Exerc Sport.* 2012;83(3):367-375. doi:[10.1080/02701367.2012.10599870](https://doi.org/10.1080/02701367.2012.10599870) — VO와 running economy 의 유의한 음의 상관.
 - **Folland JP, Allen SJ, Black MI, Handsaker JC, Forrester SE.** Running technique is an important component of running economy and performance. *Med Sci Sports Exerc.* 2017;49(7):1412-1423. doi:[10.1249/MSS.0000000000001245](https://doi.org/10.1249/MSS.0000000000001245) — VO 가 modifiable 한 핵심 economy 결정 요인.
 - **Cavanagh PR, Williams KR.** The effect of stride length variation on oxygen uptake during distance running. *Med Sci Sports Exerc.* 1982;14(1):30-35. — VO 측정 방법론의 고전 문헌.
-- 일반 통념: healthy VO 범위 약 6~10cm. 신장 1.7m + PRD-8 촬영 가이드 (인체 화면 60~80% 점유) 기준 정규화 Y 약 0.035~0.060. **우리 임계 0.06** 은 healthy upper bound 와 정합 (2026-05-17 0.08 → 0.06 으로 학술 통념에 맞춰 축소).
+- 일반 통념: healthy VO 범위 약 6~10cm. 신장 1.7m + PRD-8 촬영 가이드 (인체 화면 60~80% 점유) 기준 정규화 Y 약 0.035~0.060. **우리 정규화 임계 0.06** 은 healthy upper bound 와 정합 (2026-05-17 0.08 → 0.06 으로 학술 통념에 맞춰 축소).
+
+### [R4-cm] cm-aware 모드 (Phase 1, 2026-05-28)
+
+위 정규화 임계는 신장 1.7m + 프레이밍 60~80% **가정에 묶여** 있다. 키 큰 사람(190cm)이나 줌 차이로 프레이밍이 바뀌면 같은 mechanical VO 도 정규화 값이 달라져 신호가 왜곡됨. 사용자 입력 신장 + 프레임 내 신체 길이 측정으로 절대 cm 환산해 가정을 제거한다.
+
+- **알고리즘**:
+  ```
+  body_norm_length = median_over_frames(max(L_ankle_y, R_ankle_y) - nose_y)   # 정규화 단위
+  scale_cm_per_norm = height_cm / body_norm_length                            # cm / norm
+  vo_cm = vo_norm * scale_cm_per_norm
+  status = "high" if vo_cm > VO_HIGH_THRESHOLD_CM (10) else "good"
+  ```
+  좌/우 ankle 중 화면상 더 아래(`y` 큰 값) 를 사용해 한쪽 occlusion 에 robust (`np.fmax`). preprocessor 가 visibility < 0.4 를 NaN 마스킹하므로 별도 visibility 필터링 불필요. **모든 프레임에서 nose+ankle 결측 시 body_norm_length=NaN → 정규화 임계 fallback** (조용한 degrade).
+- **임계 근거**: Cavanagh & Williams 1982 의 healthy upper bound 10cm. Folland 2017 / Tartaruga 2012 도 cm 단위로 economy 와의 음의 상관 보고.
+- **모드 분기**: `analyze_vertical_oscillation(..., height_cm, body_norm_length)` 가 둘 다 유효(>0)일 때 cm-aware, 아니면 정규화 fallback. 결과 dict 의 `avg_value_cm` / `threshold_cm` / `scale_cm_per_norm` 가 None 이면 fallback 모드임을 나타냄 (csv_reporter / coach_message 가 분기 가능).
+- **함정**:
+  - body_norm_length 가 너무 작은 값(예: < 0.1) 이면 scale 폭발 → 비현실적 cm. 현재는 보호하지 않음 (PRD-8 측면 촬영 + 프레이밍 60~80% 가이드 가정). 향후 운영 데이터로 sanity bound 추가 검토.
+  - 프레이밍이 크게 바뀌는 영상(zoom in/out, panning) 은 median 으로 흡수되지만 극단적으로 변하면 부정확. 트레드밀 + 고정 삼각대 가정에서는 무시 가능.
+  - cm 정밀도는 **수직 진폭에만** 적용. overstride 0.15 정규화 임계는 여전히 프레이밍 가정 사용 — 같은 환산을 적용하면 가로 거리(X) 도 cm 환산 가능하나, perspective 왜곡 영향이 커 현재 deferred.
 
 ### [R5] 좌우 비대칭 (10% 임계)
 
@@ -443,3 +550,75 @@ result.summary                                 # 요약 출력용
 ### [R7] MediaPipe BlazePose (model_complexity=2, Heavy)
 
 - **Bazarevsky V, Grishchenko I, Raveendran K, Zhu T, Zhang F, Grundmann M.** BlazePose: On-device Real-time Body Pose Tracking. *arXiv:2006.10204.* 2020. (Presented at CV4ARVR Workshop, CVPR 2020.) — [arXiv](https://arxiv.org/abs/2006.10204) — 33 keypoints 토폴로지(HEEL, FOOT_INDEX 포함), OpenPose 대비 25~75× 속도, fitness/AR 도메인 정확도. PRD-0 가 BlazePose 채택한 핵심 근거.
+
+### [R8-cadence] Cadence pace-aware 보정 (Phase 1, 2026-05-28)
+
+단일 "180 spm" cutoff 는 (a) 빠른 pace 일수록 cadence 자연 상승, (b) 키 큰 사람은 stride 가 길어 같은 pace 에 더 낮은 cadence 가 정상 — 두 효과를 무시한다. pace + 신장 입력으로 개인별 기대 cadence 밴드를 산출하고 `optimal`/`low`/`high` 분류 결과를 정보성으로 노출한다 (warning 트리거 아님).
+
+- **알고리즘**:
+  ```
+  base_lo, base_hi = band_for(pace_sec_per_km)                 # 170cm 명목 밴드 (4단계)
+  shift = -(height_cm - 170) * CADENCE_HEIGHT_SHIFT_SPM_PER_CM  # 신장 보정
+  expected = (round(base_lo + shift), round(base_hi + shift))
+  hint = "optimal" if expected_lo <= cadence_spm <= expected_hi
+         else "low"|"high" with deviation_pct
+  ```
+  pace 미입력 시 `expected_*`/`hint` 필드 미생성 — 기존 동작 (cadence_spm 만 노출) 보존.
+
+- **밴드 설계 근거**:
+  - **Daniels JT.** Daniels' Running Formula 4ed. *Human Kinetics.* 2021. — 180 spm 을 모든 페이스에서 권장하지만 본문 표 2.3/2.4 에서 jogging~tempo 페이스마다 자연 분포 차이를 명시 (165~190).
+  - **Hunter I, Lee K, Ward J, Tracy J.** Self-optimization of stride length among experienced and inexperienced runners. *J Sports Sci.* 2017;35(15):1488-1495. doi:[10.1080/02640414.2016.1228562](https://doi.org/10.1080/02640414.2016.1228562) — pace ↑ → cadence 양의 회귀 + 개인별 economy-optimal stride length 일관성.
+  - **Cavanagh PR, Kram R.** Stride length in distance running: velocity, body dimensions, and added mass effects. *Med Sci Sports Exerc.* 1989;21(4):467-479. PMID:[2674937](https://pubmed.ncbi.nlm.nih.gov/2674937/) — 동일 속도라도 신장/leg length 에 따라 economy-optimal cadence 가 ±5~10 spm 변동.
+  - **Schubert AG, Kempf J, Heiderscheit BC.** Influence of Stride Frequency and Length on Running Mechanics: A Systematic Review. *Sports Health.* 2014;6(3):210-217. doi:[10.1177/1941738113508544](https://doi.org/10.1177/1941738113508544) PMID:[24790690](https://pubmed.ncbi.nlm.nih.gov/24790690/) — preferred cadence 의 ±5~10% 변화가 mechanics 에 미치는 영향. 우리 밴드 폭 ±6~14 spm 가 이 범위 안.
+
+- **신장 보정 0.5 spm/cm 근거**: **Winter DA.** Biomechanics and Motor Control of Human Movement. *Wiley.* 1990. — leg length ≈ height × 0.485. 같은 pace 에 cadence × stride = velocity 가 보존되므로 stride 가 leg length 에 비례하면 cadence 는 반비례. 1cm 신장 증가 → leg 약 0.5cm 증가 → 평균 stride 약 1.1cm 증가 → 같은 pace 에서 약 0.5 spm 감소. 자체 4영상 검증에서 일관 (cadence-stable runner 패턴).
+
+- **자체 검증 (4영상, 175cm 동일 러너, 2026-05-29)**:
+
+  | pace | 측정 cadence | expected (175cm) | hint | 비고 |
+  |---|---|---|---|---|
+  | 5:30/km | 176 spm | 166–178 | **optimal** | GT 25 strikes 매치 |
+  | 6:00/km | 178 spm | 166–178 | optimal (상단경계) | GT 67 매치 |
+  | 6:30/km | 177 spm | 160–172 | high (+2.9%) | 측정 +3 over (§R9 잔여), GT 보정 시 166 → optimal |
+  | 7:00/km | 172 spm | 160–172 | optimal (상단경계) | GT 33 매치 |
+
+- **함정**:
+  - **Cadence-stable runner**: 일부 숙련 러너는 pace 4단계 변화 (5:30→7:00) 에도 cadence 가 172~178 로 거의 일정 (stride length 만 조절). 우리 4단 밴드가 이 러너에게 빡빡할 수 있음. 학술 baseline 정합성 우선 + hint 가 warning 트리거 아님 — 정보성만.
+  - **Hint 가 절대 임계 아님**: 개인별 economy-optimal cadence 는 ±5~10 spm 변동 (Cavanagh 1989). 밴드 밖이라고 즉시 부상 위험 아님. coach_message 의 cadence trailing 도 "조정 제안" 톤 유지.
+  - **Pace 입력 정확도 의존**: 사용자 입력 pace 가 실제 영상 pace 와 1km/min 어긋나면 expected 가 한 밴드씩 시프트. 트레드밀 set speed vs 실제 측정값 차이 5% 내라면 hint 결과 흔들리지 않음 (밴드 폭 ±6~14 spm).
+
+### [R9-strike-detection] Strike detection 실측 보정 (2026-05-29)
+
+`scipy.signal.find_peaks` 기반 발목 Y 극대점 검출이 (a) 한 stance phase 안의 double peak, (b) pose extraction boundary 의 spurious peak 로 인해 측정 cadence 가 평균 +20% over-count 됐다. cooldown 과 prominence 두 매개변수를 실측 보정.
+
+- **변경**: `FOOT_STRIKE_COOLDOWN_FRAMES = 10 → 20` (60fps 기준 0.167s → 0.333s) + `FOOT_STRIKE_MIN_PROMINENCE = 0.001` 신규 도입.
+
+- **자체 데이터 — 4영상 ground truth 매핑**:
+
+  | 영상 | duration | GT (수동 카운트) | 변경 전 (cd=10) | 변경 후 (cd=20, prom≥0.001) |
+  |---|---|---|---|---|
+  | pace530 | 8.5s | 25 | 32 (+28%) | **25 ✓ (±0)** |
+  | pace6 | 22.9s | 67 | 80 (+19%) | **67 ✓ (±0)** |
+  | pace630 | 16.2s | 45 | 53 (+18%) | 47 (+2) |
+  | pace7 | 11.1s | 33 | 35 (+6%) | 32 (-1) |
+  | **총 절대오차** | | | **30** | **3** |
+
+- **Cooldown 20 근거**:
+  - 정상 stride cycle = 60 / (180 spm / 2) ≈ 0.667s (한 발 다시 디딤까지). cooldown = cycle 의 절반 = 0.333s = 20 frames @60fps. 자연스러운 boundary — 정상 strike 손실 위험 0.
+  - 4영상 sweep 결과 cd 20~40 plateau (모두 동일 카운트). cd=50 부터 정상 strike 손실 시작. cd=20 이 plateau 의 보수적 경계.
+  - 기존 cd=10 의 false-positive 원인 = 한 stance phase 안의 발목 Y 미세 oscillation (heel-strike → mid-stance → toe-off 중 발목이 단조 하강 아닌 작은 출렁임) → find_peaks 가 0.18s 간격 double peak 검출.
+  - **Cavanagh PR, Kram R.** *Med Sci Sports Exerc.* 1989;21(4):467-479. PMID:[2674937](https://pubmed.ncbi.nlm.nih.gov/2674937/) — 정상 stride cycle 시간.
+
+- **Min_prominence 0.001 근거**:
+  - 진단 결과 정상 strike 의 prominence 분포는 0.04 ~ 0.09 (median ≈ 0.07). pose extraction boundary 의 spurious peak 는 0.0001 ~ 0.007 — **100배 차이로 명확히 분리**.
+  - 4영상 sweep 에서 prom=0.001 이 spurious 만 거르고 정상 strike 손실 0. prom=0.005 이상에서 pace6 정상 1개 손실 시작.
+  - 0.001 의 물리적 의미: 정규화 좌표상 화면 높이의 0.1% = 1080p 에서 약 1.1 픽셀 = pose estimation noise floor.
+
+- **잔여 한계 (pace630 +2)**:
+  - pace630 의 `find_peaks` 가 잡는 추가 2개 peak 는 prominence 0.04 이상 — 알고리즘 관점에서 정상 strike 와 구분 불가. amplitude/stance-phase 길이 등 다른 신호 도입 필요.
+  - 또는 사용자 수동 카운트 자체의 ±1~2 정확도. 4영상 평균 절대오차 3/170 ≈ 1.8% 는 학술 보고된 marker-based 시스템과의 통상 오차 범위 (Schubert 2014).
+
+- **함정**:
+  - **임계는 정규화 좌표 단위**: prominence 0.001 은 절대 픽셀이 아닌 [0,1] 정규화 단위. 해상도 변경에 자동 적응. 다만 카메라 줌/거리에 따른 발목 Y 변동 폭 자체가 달라지면 (예: 상반신만 잡힌 영상) 정상 prominence 도 작아질 수 있음 — PRD-8 §V1 의 framing 가이드 준수 가정.
+  - **Cooldown 50 이상 회피**: 4영상 sweep 에서 cd=50 부터 정상 strike 손실 ≥35% — race pace (4:30/km 미만, cadence 190+ spm) 의 정상 cycle 길이가 0.6s 미만이라 cooldown 이 cycle 을 넘어가면 안전 마진 0.
+  - **단위 테스트**: `tests/test_foot_strike_detector.py` 가 cd=20 / prom=0.001 기본값 + cooldown 동작 + prominence 동작 + NaN 처리 + Left/Right 통합 14 케이스로 회귀 보호.

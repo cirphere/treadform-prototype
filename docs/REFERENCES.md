@@ -37,11 +37,35 @@
 > DOI: [10.1249/MSS.0b013e3181ebedf4](https://doi.org/10.1249/MSS.0b013e3181ebedf4)
 > PMID: [20581720](https://pubmed.ncbi.nlm.nih.gov/20581720/) · PMC: [PMC3022995](https://pmc.ncbi.nlm.nih.gov/articles/PMC3022995/)
 
-**Key finding (인용 근거):** Cadence 를 preferred 대비 +5% / +10% 로 올렸을 때 무릎 에너지 흡수가 각각 ~20% / ~34% 감소. IC 및 peak knee flexion 변동성을 함께 다루며, stiff knee 패턴이 shock absorption 부족과 직접 연결됨을 정량.
+**Key finding (메커니즘 근거):** Cadence 를 preferred 대비 +5% / +10% 로 올렸을 때 무릎 에너지 흡수가 각각 ~20% / ~34% 감소. IC 및 peak knee flexion 변동성을 함께 다루며, stiff knee 패턴이 shock absorption 부족과 직접 연결됨을 정량.
 
-**자체 결정 명시 ⚠️:** 우리 측정 시점은 **착지 시점 (IC, initial contact)** 이며, hip-knee-ankle 내각 160°는 IC flexion ≈ 20°, 140°는 ≈ 40°에 해당한다. IC 시점 knee flexion 의 정확한 단일 정량 임계 (160°/140°) 를 명시한 1차 학술 출처는 부재하며, 본 임계는 **임상 통념 (IC normal flexion ~20°) 기반 + pace 530/6/7/630 4 영상 자체 검증 (false positive 0건)** 으로 정당화한다. 발표 시 "임상 통념 기반 + 자체 검증" 으로 정직 표기.
+**Key finding (정량 normative 근거, 2026-05-25 추가):** 동일 논문이 보고한 n=45 healthy recreational runner 의 condition 별 IC knee flexion 측정값:
 
-> **이전 인용 (2026-05-17 정정):** Souza 2016 PMR 의 "< 45° flexion = stiff" 는 stance phase peak flexion 기준이라 IC 측정에 직접 매칭되지 않아 인용에서 제외함.
+| Condition | IC knee flexion (deg) |
+|---|---|
+| **Preferred (baseline)** | **17.8 ± 4.0** |
+| +5% step rate | 18.7 ± 3.9 |
+| +10% step rate | 19.6 ± 4.2 (p<0.01) |
+| −5% step rate | 17.0 ± 4.1 |
+| −10% step rate | 16.9 ± 4.2 |
+
+측정 정의: IC = "vertical GRF > 50 N 인 순간" (포스플레이트 trigger), 200 Hz 8-camera 3D motion capture.
+
+**우리 임계의 SD 단위 매핑:** Heiderscheit 컨벤션 (0° = straight leg) ↔ 우리 컨벤션 (180° = straight leg).
+
+| 우리 knee angle | = IC flexion | Heiderscheit baseline (17.8 ± 4.0) 기준 |
+|---|---|---|
+| 158.2° | 21.8° | mean + 1 SD (더 굽힘) |
+| 162.2° | 17.8° | mean (baseline) |
+| **165°** (stiff 임계) | **15°** | **mean − 0.7 SD (덜 굽힘, statistical outlier-leaning)** |
+| 166.2° | 13.8° | mean − 1 SD |
+| 140° (over_bent 임계) | 40° | mean + 5.6 SD (매우 보수적 하한) |
+
+→ 우리 stiff 임계 165° 는 Heiderscheit baseline 의 평균보다 약 0.7 SD stiffer 영역에 위치 — 통계적으로 합리적 outlier 경계.
+
+**자체 데이터 검증:** pace 530/6/7/630 4 영상 200 strikes 평균 knee angle 158.5° (IC flexion 21.5°, baseline 보다 0.9 SD 더 굽힘 — 숙련 러너의 우수한 mechanics 와 일관). Max 164° (mean − 0.45 SD), > 165° 진입 0건, < 140° 진입 0건. False positive 0건 확인.
+
+> **Souza 2016 위치 — 향후 작업 인용 예정 (2026-05-25 재정리):** Souza RB. *Phys Med Rehabil Clin N Am.* 2016;27(1):217-236 (PMC4714754) 의 "knee flexion < 45° = stiff" 임계는 **stance phase peak flexion** (mid-stance 최대 굴곡) 기준이며, 현재 우리 측정은 IC 시점만 평가하므로 적용 불가. 향후 **Peak Flexion 지표 추가** 시 1차 근거로 복귀 예정 — toe-off 검출 + stance phase slicing 구현 필요, 60fps 에서 peak 시점 시간 분해능 ±3° 한계. PRD-2 §[R1-future] 참조.
 
 ---
 
@@ -206,26 +230,30 @@
 
 발표 슬라이드에서 inline 인용 예시:
 
-> 우리는 무릎 굴곡 임계값을 hip-knee-ankle 내각 160°(stiff)/140°(over-bent) 로 정의했습니다.
-> 이는 Heiderscheit et al. (2011)¹ 의 cadence-knee energy absorption 결과 및 Souza (2016)² 의 video-based gait analysis 권장 (knee flexion < 45° = stiff) 에 기반합니다.
+> 우리는 무릎 굴곡 임계값을 hip-knee-ankle 내각 **165°(stiff) / 140°(over-bent)** 로 정의했습니다 (2026-05-25 재조정).
+> 이는 **Heiderscheit et al. (2011)¹** 의 IC knee flexion baseline 측정값 **17.8° ± 4.0°** (n=45 healthy recreational runner) 에 기반하며, 우리 stiff 임계 165° (= IC flexion 15°) 는 해당 baseline 평균보다 약 0.7 SD stiffer 영역에 해당합니다.
+> 동일 논문이 추가로 stiff knee 패턴 (낮은 IC flexion) 이 shock absorption 부족과 부상 위험에 직접 연결됨을 정량했습니다.
+> 우리 측정은 IC 시점만 평가하며, mid-stance peak flexion 측정 (Souza 2016 권장) 은 향후 작업으로 deferred 상태입니다 (PRD-2 §[R1-future]).
 
 References slide 예시:
 
 1. Heiderscheit BC et al. *Med Sci Sports Exerc.* 2011;43(2):296-302.
-2. Souza RB. *Phys Med Rehabil Clin N Am.* 2016;27(1):217-236.
-3. Altman AR, Davis IS. *Gait Posture.* 2012;35(2):298-300.
-4. Lieberman DE et al. *Nature.* 2010;463:531-535.
-5. Schubert AG et al. *Sports Health.* 2014;6(3):210-217.
-6. Tartaruga MP et al. *Res Q Exerc Sport.* 2012;83(3):367-375.
-7. Folland JP et al. *Med Sci Sports Exerc.* 2017;49(7):1412-1423.
-8. Cavanagh PR, Williams KR. *Med Sci Sports Exerc.* 1982;14(1):30-35.
-9. Zifchock RA et al. *Gait Posture.* 2008;27(4):622-627.
-10. Zifchock RA, Davis I, Hamill J. *J Biomech.* 2006;39(15):2792-2797.
-11. Pappas P, Paradisis G, Vagenas G. *Hum Mov Sci.* 2015;40:273-283.
-12. Parkinson AO et al. *J Sports Sci Med.* 2021;20(4):594-617.
-13. Cavanagh PR, Kram R. *Med Sci Sports Exerc.* 1989;21(4):467-479.
-14. Daniels J. *Daniels' Running Formula.* 4th ed. Human Kinetics; 2021.
-15. Bazarevsky V et al. arXiv:2006.10204. 2020. (CVPR 2020 CV4ARVR Workshop)
+2. Altman AR, Davis IS. *Gait Posture.* 2012;35(2):298-300.
+3. Lieberman DE et al. *Nature.* 2010;463:531-535.
+4. Schubert AG et al. *Sports Health.* 2014;6(3):210-217.
+5. Tartaruga MP et al. *Res Q Exerc Sport.* 2012;83(3):367-375.
+6. Folland JP et al. *Med Sci Sports Exerc.* 2017;49(7):1412-1423.
+7. Cavanagh PR, Williams KR. *Med Sci Sports Exerc.* 1982;14(1):30-35.
+8. Zifchock RA et al. *Gait Posture.* 2008;27(4):622-627.
+9. Zifchock RA, Davis I, Hamill J. *J Biomech.* 2006;39(15):2792-2797.
+10. Pappas P, Paradisis G, Vagenas G. *Hum Mov Sci.* 2015;40:273-283.
+11. Parkinson AO et al. *J Sports Sci Med.* 2021;20(4):594-617.
+12. Cavanagh PR, Kram R. *Med Sci Sports Exerc.* 1989;21(4):467-479.
+13. Daniels J. *Daniels' Running Formula.* 4th ed. Human Kinetics; 2021.
+14. Bazarevsky V et al. arXiv:2006.10204. 2020. (CVPR 2020 CV4ARVR Workshop)
+
+> **Deferred (향후 작업 시 인용 예정):**
+> - Souza RB. An evidence-based videotaped running biomechanics analysis. *Phys Med Rehabil Clin N Am.* 2016;27(1):217-236. PMC4714754. — Peak Flexion 지표 추가 시 1차 근거 예정.
 
 ---
 
