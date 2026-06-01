@@ -89,12 +89,26 @@ def _run_analysis_task(analysis_id: str) -> None:
     logger.info("background task start: %s", analysis_id)
     started_at = datetime.now()
 
+    # 업로드 시 함께 받은 사용자 입력을 분석으로 전달한다.
+    #   - height_cm: VO 가 cm-aware 모드로 동작 (픽셀→cm 환산).
+    #   - pace_sec_per_km: cadence 가 pace-aware 모드 (기대 케이던스 범위/hint).
+    # 트레드밀 속도(km/h)는 pace(sec/km) 로 환산: pace = 3600 / speed.
+    height_cm = entry.get("user_height_cm")
+    speed_kmh = entry.get("treadmill_speed_kmh")
+    pace_sec_per_km = (
+        3600.0 / float(speed_kmh)
+        if speed_kmh and float(speed_kmh) > 0
+        else None
+    )
+
     try:
         from analyzer import run_full_analysis_with_output
 
         result = run_full_analysis_with_output(
             video_path=video_path,
             output_dir=str(_STORAGE_ROOT),
+            height_cm=float(height_cm) if height_cm else None,
+            pace_sec_per_km=pace_sec_per_km,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("background task failed: %s", analysis_id)
@@ -145,6 +159,7 @@ async def upload_video(
     member_id: str | None = Form(None),
     user_height_cm: int | None = Form(None),
     user_weight_kg: int | None = Form(None),
+    treadmill_speed_kmh: float | None = Form(None),
 ) -> dict:
     """
     트레드밀 러닝 영상 업로드 + 비동기 분석 시작.
@@ -155,9 +170,10 @@ async def upload_video(
 
     Form fields:
         video           : mp4 / mov 영상 (필수)
-        member_id       : 트레이너 모드의 회원 ID (선택)
-        user_height_cm  : 키 (cm, 선택)
-        user_weight_kg  : 체중 (kg, 선택)
+        member_id           : 트레이너 모드의 회원 ID (선택)
+        user_height_cm      : 키 (cm, 선택) — VO cm-aware 모드 활성화
+        user_weight_kg      : 체중 (kg, 선택)
+        treadmill_speed_kmh : 트레드밀 속도 (km/h, 선택) — pace-aware cadence 활성화
 
     Returns:
         202 Accepted
@@ -232,6 +248,7 @@ async def upload_video(
         "member_id": member_id,
         "user_height_cm": user_height_cm,
         "user_weight_kg": user_weight_kg,
+        "treadmill_speed_kmh": treadmill_speed_kmh,
         "uploaded_at": datetime.now().isoformat(timespec="seconds"),
     }
     background_tasks.add_task(_run_analysis_task, analysis_id)
