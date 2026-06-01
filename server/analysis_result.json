@@ -1,0 +1,617 @@
+{
+  "analysis_id": "running_video-616b51e1",
+  "summary": {
+    "total_frames": 217,
+    "duration_sec": 7.2,
+    "fps": 30.0,
+    "total_strikes": 19,
+    "left_strikes": 9,
+    "right_strikes": 10,
+    "danger_count": 19
+  },
+  "metrics": {
+    "knee_flexion": {
+      "avg_angle": 155.88444338250966,
+      "left_avg": 157.97186116709986,
+      "right_avg": 154.0057673763785,
+      "status_counts": {
+        "stiff": 0,
+        "good": 4,
+        "over_bent": 1,
+        "borderline": 14
+      },
+      "per_strike": [
+        {
+          "frame": 1,
+          "angle": 130.2841068525592,
+          "status": "over_bent",
+          "foot": "right"
+        },
+        {
+          "frame": 13,
+          "angle": 149.0770650733864,
+          "status": "good_flexion",
+          "foot": "right"
+        },
+        {
+          "frame": 23,
+          "angle": 159.5522809876767,
+          "status": "borderline",
+          "foot": "left"
+        },
+        {
+          "frame": 36,
+          "angle": 153.9286304617665,
+          "status": "good_flexion",
+          "foot": "right"
+        },
+        {
+          "frame": 48,
+          "angle": 160.25923847628758,
+          "status": "borderline",
+          "foot": "left"
+        },
+        {
+          "frame": 59,
+          "angle": 158.35505258260926,
+          "status": "borderline",
+          "foot": "right"
+        },
+        {
+          "frame": 70,
+          "angle": 159.47212125858294,
+          "status": "borderline",
+          "foot": "left"
+        },
+        {
+          "frame": 82,
+          "angle": 158.19525276223337,
+          "status": "borderline",
+          "foot": "right"
+        },
+        {
+          "frame": 93,
+          "angle": 156.84468795950391,
+          "status": "borderline",
+          "foot": "left"
+        },
+        {
+          "frame": 104,
+          "angle": 157.88132033932115,
+          "status": "borderline",
+          "foot": "right"
+        },
+        {
+          "frame": 115,
+          "angle": 160.0507258867373,
+          "status": "borderline",
+          "foot": "left"
+        },
+        {
+          "frame": 127,
+          "angle": 160.40745280853307,
+          "status": "borderline",
+          "foot": "right"
+        },
+        {
+          "frame": 138,
+          "angle": 156.22492107048097,
+          "status": "borderline",
+          "foot": "left"
+        },
+        {
+          "frame": 151,
+          "angle": 159.98518581736437,
+          "status": "borderline",
+          "foot": "right"
+        },
+        {
+          "frame": 162,
+          "angle": 155.24254538557736,
+          "status": "borderline",
+          "foot": "left"
+        },
+        {
+          "frame": 173,
+          "angle": 159.45078759519464,
+          "status": "borderline",
+          "foot": "right"
+        },
+        {
+          "frame": 183,
+          "angle": 154.64629125496074,
+          "status": "good_flexion",
+          "foot": "left"
+        },
+        {
+          "frame": 195,
+          "angle": 152.49281947081676,
+          "status": "good_flexion",
+          "foot": "right"
+        },
+        {
+          "frame": 206,
+          "angle": 159.45393822409122,
+          "status": "borderline",
+          "foot": "left"
+        }
+      ]
+    },
+    "foot_strike": {
+      "status_counts": {
+        "heel": 19,
+        "midfoot": 0,
+        "forefoot": 0
+      },
+      "per_strike": [
+        {
+          "frame": 1,
+          "angle": -171.02236018457012,
+          "status": "heel_strike",
+          "foot": "right"
+        },
+        {
+          "frame": 13,
+          "angle": -156.20344939818506,
+          "status": "heel_strike",
+          "foot": "right"
+        },
+        {
+          "frame": 23,
+          "angle": -165.62827839158984,
+          "status": "heel_strike",
+          "foot": "left"
+        },
+        {
+          "frame": 36,
+          "angle": -159.58760151906947,
+          "status": "heel_strike",
+          "foot": "right"
+        },
+        {
+          "frame": 48,
+          "angle": -166.86722590156896,
+          "status": "heel_strike",
+          "foot": "left"
+        },
+        {
+          "frame": 59,
+          "angle": -163.77048507202858,
+          "status": "heel_strike",
+          "foot": "right"
+        },
+        {
+          "frame": 70,
+          "angle": -166.36983578050786,
+          "status": "heel_strike",
+          "foot": "left"
+        },
+        {
+          "frame": 82,
+          "angle": -159.1541204772632,
+          "status": "heel_strike",
+          "foot": "right"
+        },
+        {
+          "frame": 93,
+          "angle": -165.38553206047547,
+          "status": "heel_strike",
+          "foot": "left"
+        },
+        {
+          "frame": 104,
+          "angle": -161.5306669949367,
+          "status": "heel_strike",
+          "foot": "right"
+        },
+        {
+          "frame": 115,
+          "angle": -167.09108559010312,
+          "status": "heel_strike",
+          "foot": "left"
+        },
+        {
+          "frame": 127,
+          "angle": -158.58798316999065,
+          "status": "heel_strike",
+          "foot": "right"
+        },
+        {
+          "frame": 138,
+          "angle": -166.15783906634474,
+          "status": "heel_strike",
+          "foot": "left"
+        },
+        {
+          "frame": 151,
+          "angle": -164.0517561547284,
+          "status": "heel_strike",
+          "foot": "right"
+        },
+        {
+          "frame": 162,
+          "angle": -164.83940573766867,
+          "status": "heel_strike",
+          "foot": "left"
+        },
+        {
+          "frame": 173,
+          "angle": -161.27593791688483,
+          "status": "heel_strike",
+          "foot": "right"
+        },
+        {
+          "frame": 183,
+          "angle": -160.96666817165433,
+          "status": "heel_strike",
+          "foot": "left"
+        },
+        {
+          "frame": 195,
+          "angle": -158.7382553554771,
+          "status": "heel_strike",
+          "foot": "right"
+        },
+        {
+          "frame": 206,
+          "angle": -167.83908581059762,
+          "status": "heel_strike",
+          "foot": "left"
+        }
+      ]
+    },
+    "overstriding": {
+      "avg_distance": 0.020439662966955274,
+      "status_counts": {
+        "good": 19,
+        "over": 0
+      },
+      "per_strike": [
+        {
+          "frame": 1,
+          "distance": 0.03053868004094118,
+          "status": "good_stride",
+          "foot": "right"
+        },
+        {
+          "frame": 13,
+          "distance": 0.024337532725078548,
+          "status": "good_stride",
+          "foot": "right"
+        },
+        {
+          "frame": 23,
+          "distance": 0.009755612616301867,
+          "status": "good_stride",
+          "foot": "left"
+        },
+        {
+          "frame": 36,
+          "distance": 0.016464258769833595,
+          "status": "good_stride",
+          "foot": "right"
+        },
+        {
+          "frame": 48,
+          "distance": 0.020464799975424608,
+          "status": "good_stride",
+          "foot": "left"
+        },
+        {
+          "frame": 59,
+          "distance": 0.01556253328693169,
+          "status": "good_stride",
+          "foot": "right"
+        },
+        {
+          "frame": 70,
+          "distance": 0.02312325925438996,
+          "status": "good_stride",
+          "foot": "left"
+        },
+        {
+          "frame": 82,
+          "distance": 0.021619471791044287,
+          "status": "good_stride",
+          "foot": "right"
+        },
+        {
+          "frame": 93,
+          "distance": 0.023811312483272618,
+          "status": "good_stride",
+          "foot": "left"
+        },
+        {
+          "frame": 104,
+          "distance": 0.018275747711599677,
+          "status": "good_stride",
+          "foot": "right"
+        },
+        {
+          "frame": 115,
+          "distance": 0.0006537651752003271,
+          "status": "good_stride",
+          "foot": "left"
+        },
+        {
+          "frame": 127,
+          "distance": 0.020374184298487696,
+          "status": "good_stride",
+          "foot": "right"
+        },
+        {
+          "frame": 138,
+          "distance": 0.019176757945670864,
+          "status": "good_stride",
+          "foot": "left"
+        },
+        {
+          "frame": 151,
+          "distance": 0.036168253475164835,
+          "status": "good_stride",
+          "foot": "right"
+        },
+        {
+          "frame": 162,
+          "distance": 0.020619561407614895,
+          "status": "good_stride",
+          "foot": "left"
+        },
+        {
+          "frame": 173,
+          "distance": 0.021562206493506486,
+          "status": "good_stride",
+          "foot": "right"
+        },
+        {
+          "frame": 183,
+          "distance": 0.01926887849515424,
+          "status": "good_stride",
+          "foot": "left"
+        },
+        {
+          "frame": 195,
+          "distance": 0.030153534989981523,
+          "status": "good_stride",
+          "foot": "right"
+        },
+        {
+          "frame": 206,
+          "distance": 0.016423245436551326,
+          "status": "good_stride",
+          "foot": "left"
+        }
+      ]
+    },
+    "vertical_oscillation": {
+      "avg_value": 0.017022363144626084,
+      "left_avg": 0.01718891542728658,
+      "right_avg": 0.016874316671150087,
+      "status": "good",
+      "per_stride": [
+        {
+          "start_frame": 1,
+          "end_frame": 13,
+          "value": 0.016075010184034344,
+          "status": "good_oscillation",
+          "foot": "right"
+        },
+        {
+          "start_frame": 13,
+          "end_frame": 36,
+          "value": 0.014763974634775412,
+          "status": "good_oscillation",
+          "foot": "right"
+        },
+        {
+          "start_frame": 23,
+          "end_frame": 48,
+          "value": 0.018529697088228714,
+          "status": "good_oscillation",
+          "foot": "left"
+        },
+        {
+          "start_frame": 36,
+          "end_frame": 59,
+          "value": 0.019559993730714376,
+          "status": "good_oscillation",
+          "foot": "right"
+        },
+        {
+          "start_frame": 48,
+          "end_frame": 70,
+          "value": 0.02012020180739532,
+          "status": "good_oscillation",
+          "foot": "left"
+        },
+        {
+          "start_frame": 59,
+          "end_frame": 82,
+          "value": 0.014708699412216586,
+          "status": "good_oscillation",
+          "foot": "right"
+        },
+        {
+          "start_frame": 70,
+          "end_frame": 93,
+          "value": 0.01557630453464176,
+          "status": "good_oscillation",
+          "foot": "left"
+        },
+        {
+          "start_frame": 82,
+          "end_frame": 104,
+          "value": 0.019707069036529468,
+          "status": "good_oscillation",
+          "foot": "right"
+        },
+        {
+          "start_frame": 93,
+          "end_frame": 115,
+          "value": 0.018509161473969526,
+          "status": "good_oscillation",
+          "foot": "left"
+        },
+        {
+          "start_frame": 104,
+          "end_frame": 127,
+          "value": 0.017736233909310728,
+          "status": "good_oscillation",
+          "foot": "right"
+        },
+        {
+          "start_frame": 115,
+          "end_frame": 138,
+          "value": 0.0180424335929667,
+          "status": "good_oscillation",
+          "foot": "left"
+        },
+        {
+          "start_frame": 127,
+          "end_frame": 151,
+          "value": 0.02046132786836763,
+          "status": "good_oscillation",
+          "foot": "right"
+        },
+        {
+          "start_frame": 138,
+          "end_frame": 162,
+          "value": 0.017179067022791594,
+          "status": "good_oscillation",
+          "foot": "left"
+        },
+        {
+          "start_frame": 151,
+          "end_frame": 173,
+          "value": 0.014658720851348506,
+          "status": "good_oscillation",
+          "foot": "right"
+        },
+        {
+          "start_frame": 162,
+          "end_frame": 183,
+          "value": 0.01710561044345177,
+          "status": "good_oscillation",
+          "foot": "left"
+        },
+        {
+          "start_frame": 173,
+          "end_frame": 195,
+          "value": 0.01419782041305373,
+          "status": "good_oscillation",
+          "foot": "right"
+        },
+        {
+          "start_frame": 183,
+          "end_frame": 206,
+          "value": 0.012448847454847256,
+          "status": "good_oscillation",
+          "foot": "left"
+        }
+      ]
+    }
+  },
+  "asymmetry": {
+    "strike_count_ratio": 0.1,
+    "knee_angle_ratio": 0.025106330718773447,
+    "oscillation_ratio": 0.018302420386401022,
+    "is_warning": false
+  },
+  "danger_timestamps": [
+    {
+      "time_sec": 0.033,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 0.433,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 0.767,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 1.2,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 1.6,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 1.967,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 2.333,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 2.733,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 3.1,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 3.467,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 3.833,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 4.233,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 4.6,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 5.033,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 5.4,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 5.767,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 6.1,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 6.5,
+      "type": "heel_strike",
+      "color": "red"
+    },
+    {
+      "time_sec": 6.867,
+      "type": "heel_strike",
+      "color": "red"
+    }
+  ]
+}
