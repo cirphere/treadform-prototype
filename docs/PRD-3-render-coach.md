@@ -143,11 +143,9 @@ VERTICAL_MESSAGES = {
     "high": "상하 움직임이 크게 발생합니다. 에너지 낭비가 발생할 수 있습니다.",
     "good": "수직 진폭이 효율적입니다 👍",
 }
-
-ASYMMETRY_MESSAGES = {
-    "warning": "좌우 비대칭({ratio:.0%})이 감지됩니다. 편측 부상 주의가 필요합니다.",
-}
 ```
+
+> 좌·우 비대칭 메시지는 측면 촬영 2D pose 의 결과 신뢰도 한계로 **2026-06-02 제거**됨.
 
 **메시지 우선순위 로직**:
 ```python
@@ -156,11 +154,10 @@ def select_priority_issues(result: AnalysisResult) -> list:
     여러 지표 중 가장 심각한 문제 2~3개를 선별.
 
     우선순위:
-    1. 비대칭 경고 (편측 부상 위험)
-    2. Heel Strike 비율 50% 초과
-    3. Stiff Knee 또는 Over Bent 30% 초과
-    4. Overstride 30% 초과
-    5. High Vertical Oscillation
+    1. Heel Strike 비율 50% 초과
+    2. Stiff Knee 또는 Over Bent 30% 초과
+    3. Overstride 30% 초과
+    4. High Vertical Oscillation
     """
 ```
 
@@ -257,7 +254,6 @@ def run_full_analysis_with_output(
 `server/tests/test_coach_message.py`
 - `test_message_heel_dominant`: heel 비율 60% → "뒤꿈치 착지" 문구 포함
 - `test_message_all_good`: 모든 지표 양호 → 긍정 메시지
-- `test_message_asymmetry_warning`: 비대칭 검출 시 메시지 포함
 - `test_message_natural_korean`: 어색한 표현 없음 (수동 확인)
 
 ---

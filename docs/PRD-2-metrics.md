@@ -8,7 +8,9 @@
 
 ## 🎯 이 단계의 목표
 
-Step 1에서 만든 깨끗한 keypoints DataFrame + 좌/우 착지 인덱스를 입력받아, **부상 방지 3대 지표 + 좌우 비대칭 보조 지표**를 계산하고 🔴🟡🟢 상태로 판정하는 모듈을 구현한다.
+Step 1에서 만든 깨끗한 keypoints DataFrame + 좌/우 착지 인덱스를 입력받아, **부상 방지 3대 지표**를 계산하고 🔴🟡🟢 상태로 판정하는 모듈을 구현한다.
+
+> ⚠️ 좌·우 비대칭 보조 지표는 측면 촬영 2D pose 의 결과 신뢰도 한계로 **2026-06-02 제품에서 제거**됨. 아래 비대칭 관련 명세/레퍼런스([R5][R6])는 히스토리로만 남긴다.
 
 ---
 
@@ -31,7 +33,6 @@ Step 1에서 만든 깨끗한 keypoints DataFrame + 좌/우 착지 인덱스를 
 - [x] **cm-aware 모드 (Phase 1, 2026-05-28)**: 신장 입력 + body_norm_length 환산으로 절대 cm 임계 (`VO_HIGH_THRESHOLD_CM=10`), 미입력 시 정규화 fallback. §[R4-cm] 참조.
 - [x] **Cadence pace-aware 보정 (Phase 1, 2026-05-28)**: pace(sec/km) + 신장(cm) → 기대 cadence 밴드 산출 + hint(`optimal`/`low`/`high`) 분류. pace 미입력 시 측정 cadence_spm 만 정보성 노출. §[R8-cadence] 참조.
 - [x] **Strike detection 실측 보정 (2026-05-29)**: cooldown 10→20 프레임 + prominence ≥ 0.001 임계 도입. 4영상 ground truth 매핑으로 over-count 28%→3% 감소. §[R9-strike-detection] 참조.
-- [ ] 좌우 비대칭 비율 계산 (보조 지표)
 - [ ] 통합 결과 JSON 스키마 정의 (Pydantic 모델)
 - [ ] 단위 테스트 모든 케이스 통과
 - [ ] 합성 데이터로 임계값 경계 케이스(Borderline) 검증
@@ -63,10 +64,6 @@ OVERSTRIDE_THRESHOLD = 0.15      # 정규화 좌표 기준 X 편차 (자체 결�
 VERTICAL_OSC_HIGH_THRESHOLD = 0.06  # 정규화 Y 기준 (2026-05-17 0.08→0.06, §R4 fallback)
 VO_HIGH_THRESHOLD_CM = 10.0          # cm-aware 모드 (Phase 1, 2026-05-28, §R4-cm)
 
-# === 좌우 비대칭 ===
-ASYMMETRY_WARNING_THRESHOLD = 0.1            # 10% (Zifchock 2008, Pappas 2015, §R5)
-ASYMMETRY_FOOT_VIS_DIFF_THRESHOLD = 0.10     # 좌/우 발 visibility diff 임계 (§R6)
-
 # === Cadence pace-aware 보정 (2026-05-28, §R8-cadence) ===
 # 170cm 기준 명목 밴드. 신장 시프트: shift = -(h-170) * CADENCE_HEIGHT_SHIFT_SPM_PER_CM
 CADENCE_BANDS_170CM = (
@@ -81,12 +78,6 @@ CADENCE_HEIGHT_SHIFT_SPM_PER_CM = 0.5    # Winter 1990 leg length × 0.485 → �
 FOOT_STRIKE_COOLDOWN_FRAMES = 20         # 60fps 0.333s = stride cycle 의 절반 (실측 보정 10→20)
 FOOT_STRIKE_MIN_PROMINENCE = 0.001       # boundary spurious peak (정상 prom 의 1%) 거름
 ```
-
-**비대칭 트리거 정책 (2026-05-17):**
-- `is_warning` 트리거는 `knee_angle_ratio` 와 `oscillation_ratio` 만 사용.
-- `strike_count_ratio` 는 결과 객체에 정보성으로 노출하되 트리거에서 제외 (측면 촬영 occlusion 의 dominant 노이즈 신호이기 때문, §R5/R6).
-- 좌/우 발 평균 visibility 차이가 `ASYMMETRY_FOOT_VIS_DIFF_THRESHOLD` 를 초과하면 `strike_count_ratio` 를 NaN 으로 대체 (검출 불가 신호로 명시).
-- `is_warning=True` AND `NOT_SIDE_VIEW` quality warning 부재 시 `SIDE_VIEW_ASYM_CAUTION` caveat 카드를 자동 첨부 (`quality_assessor.apply_asymmetry_caveats`).
 
 ### 2. `server/analyzer/metrics/knee_flexion.py`
 
@@ -205,31 +196,10 @@ def analyze_vertical_oscillation(
 - 트레이너 모드: 회원 등록 시 `MemberCreate.height_cm` → `MEMBERS[member_id]["height_cm"]` → 업로드 form 미첨부 시 서버가 자동 fallback (`api/upload._run_analysis_task`).
 - 우선순위: form `user_height_cm` > 회원 프로필 `height_cm` > `None` (정규화 fallback).
 
-### 6. `server/analyzer/metrics/asymmetry.py` (보조 지표)
+### 6. ~~`server/analyzer/metrics/asymmetry.py` (보조 지표)~~ — 제거됨 (2026-06-02)
 
-```python
-def calculate_asymmetry_ratio(left_value: float, right_value: float) -> float:
-    """좌/우 비대칭 비율 = |L - R| / max(L, R)"""
-
-def analyze_asymmetry(strike_indices: dict,
-                       knee_result: dict,
-                       vertical_result: dict,
-                       foot_visibility: dict | None = None) -> dict:
-    """
-    Args:
-        foot_visibility: {"left": float, "right": float} 좌/우 발(heel/foot_index/ankle)
-            평균 visibility. diff > ASYMMETRY_FOOT_VIS_DIFF_THRESHOLD 시
-            strike_count_ratio → NaN (검출 불가능 신호).
-
-    Returns:
-        {
-            "strike_count_ratio": float,    # 정보성만 — is_warning 트리거 X
-            "knee_angle_ratio": float,      # 트리거 O
-            "oscillation_ratio": float,     # 트리거 O
-            "is_warning": bool              # knee 또는 osc 가 임계 초과 시 True
-        }
-    """
-```
+좌·우 비대칭 보조 지표는 측면 촬영 2D pose 의 결과 신뢰도 한계로 제거되었다.
+모듈(`asymmetry.py`)·`AnalysisResult.asymmetry` 필드·코칭 메시지·품질 caveat(`SIDE_VIEW_ASYM_CAUTION`)·config 임계 모두 삭제됨.
 
 ### 7. `server/models/analysis_result.py` (Pydantic 통합 모델)
 
@@ -255,7 +225,6 @@ class AnalysisResult(BaseModel):
     analysis_id: str
     summary: dict
     metrics: dict  # {knee_flexion, foot_strike, overstriding, vertical_oscillation}
-    asymmetry: dict
     danger_timestamps: list[DangerTimestamp]
     # 아래 두 필드는 PRD-8 도입 후 추가됨.
     # confidence: Literal["high", "medium", "low"]
@@ -272,8 +241,7 @@ def run_full_analysis(video_path: str) -> AnalysisResult:
     2. preprocess_pose_dataframe
     3. detect_left_right_strikes
     4. analyze_knee_flexion, foot_strike, overstriding, vertical_oscillation
-    5. analyze_asymmetry
-    6. Danger 타임스탬프 수집
+    5. Danger 타임스탬프 수집
     """
 ```
 
@@ -315,9 +283,6 @@ def test_overstride_exactly_at_threshold():
 
 def test_vertical_oscillation_per_stride():
     """동일 발 사이만 측정되는지 검증"""
-
-def test_asymmetry_ratio_calculation():
-    """L=100, R=120 → ratio = 0.1667"""
 ```
 
 ---
@@ -358,7 +323,7 @@ assert isinstance(result.danger_timestamps, list)
 
 2. "server/analyzer/metrics/knee_flexion.py에 무릎 굴곡 각도 계산과 4단계 상태 판정 함수를 구현. classify_knee_status는 Borderline 우선 판정 로직 적용."
 
-3. "server/analyzer/metrics/ 폴더에 foot_strike, overstriding, vertical_osc, asymmetry 4개 모듈을 순차적으로 구현해줘. 각각 단위 테스트도 함께."
+3. "server/analyzer/metrics/ 폴더에 foot_strike, overstriding, vertical_osc 3개 모듈을 순차적으로 구현해줘. 각각 단위 테스트도 함께."
 
 4. "server/models/analysis_result.py에 Pydantic 모델 정의. AnalysisResult, MetricResult, DangerTimestamp 포함."
 
@@ -382,8 +347,7 @@ server/
 │       ├── knee_flexion.py
 │       ├── foot_strike.py
 │       ├── overstriding.py
-│       ├── vertical_osc.py
-│       └── asymmetry.py
+│       └── vertical_osc.py
 ├── models/
 │   ├── __init__.py
 │   └── analysis_result.py
@@ -533,14 +497,16 @@ P3 (after 시연 영상 / 사용자 피드백 / 다른 러너 영상 다양화 �
   - 프레이밍이 크게 바뀌는 영상(zoom in/out, panning) 은 median 으로 흡수되지만 극단적으로 변하면 부정확. 트레드밀 + 고정 삼각대 가정에서는 무시 가능.
   - cm 정밀도는 **수직 진폭에만** 적용. overstride 0.15 정규화 임계는 여전히 프레이밍 가정 사용 — 같은 환산을 적용하면 가로 거리(X) 도 cm 환산 가능하나, perspective 왜곡 영향이 커 현재 deferred.
 
-### [R5] 좌우 비대칭 (10% 임계)
+### [R5] 좌우 비대칭 (10% 임계) — ⚠️ 기능 제거됨 (2026-06-02)
+
+> 좌·우 비대칭 지표는 측면 촬영 2D pose 의 결과 신뢰도 한계로 제품에서 제거되었다. 아래 레퍼런스는 의사결정 히스토리로만 보존한다.
 
 - **Zifchock RA, Davis I, Higginson J, Royer T.** The symmetry angle: a novel, robust method of quantifying asymmetry. *Gait Posture.* 2008;27(4):622-627. doi:[10.1016/j.gaitpost.2007.08.006](https://doi.org/10.1016/j.gaitpost.2007.08.006) — Symmetry Index/Angle 정량 방법론 (우리 `|L-R|/max(L,R)` 의 원전).
 - **Zifchock RA, Davis I, Hamill J.** Kinetic asymmetry in female runners with and without retrospective tibial stress fractures. *J Biomech.* 2006;39(15):2792-2797. PMID:[16289516](https://pubmed.ncbi.nlm.nih.gov/16289516/) — 부상 이력자 vs 무상자 GRF 비대칭 분포 검증.
 - **Pappas P, Paradisis G, Vagenas G.** Leg and vertical stiffness (a)symmetry between dominant and non-dominant legs in young male runners. *Hum Mov Sci.* 2015;40:273-283. doi:[10.1016/j.humov.2015.01.005](https://doi.org/10.1016/j.humov.2015.01.005) PMID:[25625812](https://pubmed.ncbi.nlm.nih.gov/25625812/) — healthy 러너에서 자연 ASI 가 ground reaction force 1.81% / contact time 2.83% / leg stiffness 6.38% 까지 — **즉 10% 가 healthy 분포 너머의 임상 의미 있는 비대칭의 경계점**.
 - **Parkinson AO, Apps CL, Morris JG, Barnett CT, Lewis MGC.** The Calculation, Thresholds and Reporting of Inter-Limb Strength Asymmetry: A Systematic Review. *J Sports Sci Med.* 2021;20(4):594-617. doi:[10.52082/jssm.2021.594](https://doi.org/10.52082/jssm.2021.594) PMID:[35321131](https://pubmed.ncbi.nlm.nih.gov/35321131/) — 18편 문헌에서 비대칭 임계 적용 메타분석. 15편이 10~15% 범위 임계를 채택 — **임상 합의 수준**.
 
-### [R6] 비대칭 트리거 격하 + visibility 가중 (자체 검증, 2026-05-16)
+### [R6] 비대칭 트리거 격하 + visibility 가중 (자체 검증, 2026-05-16) — ⚠️ 기능 제거됨 (2026-06-02)
 
 - **자체 데이터**: 동일 숙련 러너의 4 페이스(530/6/7/630) 측면 영상에서 strike_count 비대칭이 false positive 다발(diff=2~3, ratio=10~16%) 확인. knee/osc 는 모두 정상 (≤2%).
 - **설계 결정**: `is_warning` 트리거에서 strike_count_ratio 제외, knee/osc 만 사용. strike_count_ratio 는 결과 객체에 정보성으로 노출.

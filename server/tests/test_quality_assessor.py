@@ -11,8 +11,6 @@ import pytest
 
 from analyzer.quality_assessor import (
     QualityReport,
-    SIDE_VIEW_ASYM_CAUTION,
-    apply_asymmetry_caveats,
     assess,
 )
 from config import (
@@ -176,59 +174,6 @@ class TestMetricsExposed:
         assert "side_angle_deviation" in report.metrics
         assert report.metrics["cadence_spm"] == 180.0
         assert report.metrics["fps"] == 30.0
-
-
-class TestAsymmetryCaveat:
-    def test_caveat_added_when_asym_warn_no_side_warn(self):
-        df = _good_df(50)
-        report = assess(df, fps=60.0, cadence_spm=170.0)
-        assert report.confidence == "high"
-        assert report.warnings == []
-
-        asym = {"is_warning": True}
-        report = apply_asymmetry_caveats(report, asym)
-        codes = [w["code"] for w in report.warnings]
-        assert "SIDE_VIEW_ASYM_CAUTION" in codes
-        assert report.warnings[-1]["message_ko"] == SIDE_VIEW_ASYM_CAUTION["message_ko"]
-
-    def test_caveat_skipped_when_not_side_view_present(self):
-        df = _good_df(50)
-        df["left_shoulder_x"] = 0.35
-        df["right_shoulder_x"] = 0.65
-        report = assess(df, fps=60.0, cadence_spm=170.0)
-        assert "NOT_SIDE_VIEW" in [w["code"] for w in report.warnings]
-
-        asym = {"is_warning": True}
-        report = apply_asymmetry_caveats(report, asym)
-        codes = [w["code"] for w in report.warnings]
-        assert "SIDE_VIEW_ASYM_CAUTION" not in codes
-
-    def test_caveat_skipped_when_asym_no_warn(self):
-        df = _good_df(50)
-        report = assess(df, fps=60.0, cadence_spm=170.0)
-
-        asym = {"is_warning": False}
-        report = apply_asymmetry_caveats(report, asym)
-        codes = [w["code"] for w in report.warnings]
-        assert "SIDE_VIEW_ASYM_CAUTION" not in codes
-
-    def test_caveat_does_not_change_confidence(self):
-        # high (warnings=0) 상태에서 caveat 1개 추가돼도 등급 유지 (assess() 가 이미 결정).
-        df = _good_df(50)
-        report = assess(df, fps=60.0, cadence_spm=170.0)
-        original_confidence = report.confidence
-
-        asym = {"is_warning": True}
-        report = apply_asymmetry_caveats(report, asym)
-        assert report.confidence == original_confidence
-
-    def test_caveat_missing_asym_warn_key_is_safe(self):
-        # asym dict 가 is_warning 키 없이 들어와도 안전 (caveat 추가 안 됨).
-        df = _good_df(50)
-        report = assess(df, fps=60.0, cadence_spm=170.0)
-        report = apply_asymmetry_caveats(report, {})
-        codes = [w["code"] for w in report.warnings]
-        assert "SIDE_VIEW_ASYM_CAUTION" not in codes
 
 
 class TestEdgeCases:

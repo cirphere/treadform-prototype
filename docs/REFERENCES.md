@@ -137,7 +137,9 @@
 
 ---
 
-## R5. Bilateral Asymmetry
+## R5. Bilateral Asymmetry — ⚠️ 기능 제거됨 (2026-06-02)
+
+> 좌·우 비대칭 지표는 측면 촬영 2D pose 의 결과 신뢰도 한계로 제품에서 제거되었다. 아래 레퍼런스(R5·R6)는 의사결정 히스토리로만 보존한다.
 
 ### Zifchock RA, Davis I, Higginson J, Royer T.
 > **The symmetry angle: a novel, robust method of quantifying asymmetry.**
@@ -173,7 +175,7 @@
 
 ---
 
-## R6. 비대칭 트리거 격하 + Visibility 가중 (자체 데이터 검증)
+## R6. 비대칭 트리거 격하 + Visibility 가중 (자체 데이터 검증) — ⚠️ 기능 제거됨 (2026-06-02)
 
 **1차 출처 없음 — 자체 측정 데이터 기반 설계 결정 (2026-05-17).**
 

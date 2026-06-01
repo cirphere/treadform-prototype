@@ -242,7 +242,6 @@ def get_analysis(analysis_id: str):
         "csv_url": f"/storage/reports/{analysis_id}.csv",
         "summary": ar.summary,
         "metrics": ar.metrics,
-        "asymmetry": ar.asymmetry,
         "danger_timestamps": [ts.model_dump() for ts in ar.danger_timestamps],
         "coach_message_ko": result["coach_message"],
         # PRD-8 품질 평가.
@@ -573,7 +572,6 @@ server/
   "csv_url": "/storage/reports/abc-123.csv",
   "summary": { "total_strikes": 19, "cadence_spm": 157.6, "fps": 30.0, ... },
   "metrics": { ... },
-  "asymmetry": { ... },
   "danger_timestamps": [ ... ],
   "coach_message_ko": "...",
   "confidence": "high",                    // PRD-8: "high" | "medium" | "low"

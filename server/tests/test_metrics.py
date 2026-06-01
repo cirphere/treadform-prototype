@@ -11,10 +11,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analyzer.metrics.asymmetry import (
-    analyze_asymmetry,
-    calculate_asymmetry_ratio,
-)
 from analyzer.metrics.foot_strike import (
     analyze_foot_strike,
     calculate_foot_strike_angle,
@@ -37,8 +33,6 @@ from analyzer.metrics.vertical_osc import (
 )
 from analyzer.body_scale import compute_body_norm_length
 from config import (
-    ASYMMETRY_FOOT_VIS_DIFF_THRESHOLD,
-    ASYMMETRY_WARNING_THRESHOLD,
     HEEL_STRIKE_THRESHOLD,
     KNEE_BORDERLINE_TOLERANCE,
     KNEE_STIFF_THRESHOLD,
@@ -452,89 +446,6 @@ class TestBodyNormLength:
 
 
 # ---------------------------------------------------------------------------
-# Asymmetry
-# ---------------------------------------------------------------------------
-class TestAsymmetry:
-    def test_ratio_basic(self):
-        # L=100, R=120 → |20|/120 ≈ 0.1667
-        assert calculate_asymmetry_ratio(100, 120) == pytest.approx(20 / 120)
-
-    def test_ratio_nan_when_both_zero(self):
-        assert math.isnan(calculate_asymmetry_ratio(0.0, 0.0))
-
-    def test_ratio_nan_propagates(self):
-        assert math.isnan(calculate_asymmetry_ratio(float("nan"), 1.0))
-
-    def test_strike_count_alone_does_not_warn(self):
-        # 큰 strike 비대칭(50%)이라도 knee/osc 정상이면 워닝 안 뜸 — 트리거 격하 정책.
-        # pace7/630 false positive 해결 케이스.
-        strikes = {"left": np.arange(10), "right": np.arange(5)}  # ratio 50%
-        knee = {"left_avg": 150.0, "right_avg": 150.0}
-        vosc = {"left_avg": 0.04, "right_avg": 0.04}
-        result = analyze_asymmetry(strikes, knee, vosc)
-        assert result["strike_count_ratio"] == pytest.approx(0.5)
-        assert result["is_warning"] is False
-
-    def test_knee_asymmetry_triggers_warning(self):
-        strikes = {"left": np.arange(20), "right": np.arange(20)}
-        knee = {"left_avg": 150.0, "right_avg": 170.0}  # ratio≈11.8%
-        vosc = {"left_avg": 0.04, "right_avg": 0.04}
-        result = analyze_asymmetry(strikes, knee, vosc)
-        assert result["is_warning"] is True
-
-    def test_oscillation_asymmetry_triggers_warning(self):
-        strikes = {"left": np.arange(20), "right": np.arange(20)}
-        knee = {"left_avg": 150.0, "right_avg": 150.0}
-        vosc = {"left_avg": 0.04, "right_avg": 0.05}  # ratio = 20%
-        result = analyze_asymmetry(strikes, knee, vosc)
-        assert result["is_warning"] is True
-
-    def test_all_symmetric_no_warn(self):
-        strikes = {"left": np.arange(10), "right": np.arange(10)}
-        knee = {"left_avg": 150.0, "right_avg": 152.0}
-        vosc = {"left_avg": 0.04, "right_avg": 0.041}
-        result = analyze_asymmetry(strikes, knee, vosc)
-        assert result["is_warning"] is False
-        assert ASYMMETRY_WARNING_THRESHOLD == 0.1
-
-    def test_visibility_diff_invalidates_strike_ratio(self):
-        # 좌/우 발 visibility 차이가 임계 초과면 strike_count_ratio → NaN.
-        strikes = {"left": np.arange(10), "right": np.arange(5)}
-        knee = {"left_avg": 150.0, "right_avg": 150.0}
-        vosc = {"left_avg": 0.04, "right_avg": 0.04}
-        result = analyze_asymmetry(
-            strikes, knee, vosc,
-            foot_visibility={"left": 0.85, "right": 0.70},  # diff=0.15 > 0.10
-        )
-        assert math.isnan(result["strike_count_ratio"])
-        # 트리거에는 영향 없음 (이미 strike 단독 트리거 비활성).
-        assert result["is_warning"] is False
-
-    def test_visibility_balanced_keeps_strike_ratio(self):
-        # 좌/우 visibility 차이 작으면 strike_count_ratio 보존.
-        strikes = {"left": np.arange(10), "right": np.arange(5)}
-        knee = {"left_avg": 150.0, "right_avg": 150.0}
-        vosc = {"left_avg": 0.04, "right_avg": 0.04}
-        result = analyze_asymmetry(
-            strikes, knee, vosc,
-            foot_visibility={"left": 0.85, "right": 0.82},  # diff=0.03
-        )
-        assert result["strike_count_ratio"] == pytest.approx(0.5)
-
-    def test_visibility_none_keeps_strike_ratio(self):
-        # 하위 호환: foot_visibility 안 넘기면 strike_ratio 그대로.
-        strikes = {"left": np.arange(10), "right": np.arange(5)}
-        knee = {"left_avg": 150.0, "right_avg": 150.0}
-        vosc = {"left_avg": 0.04, "right_avg": 0.04}
-        result = analyze_asymmetry(strikes, knee, vosc)
-        assert result["strike_count_ratio"] == pytest.approx(0.5)
-
-    def test_foot_vis_threshold_constant_pinned(self):
-        # 설계 가정 (0.10) 이 변경되면 위 케이스 임계가 흔들리므로 핀.
-        assert ASYMMETRY_FOOT_VIS_DIFF_THRESHOLD == 0.10
-
-
-# ---------------------------------------------------------------------------
 # Pydantic 모델 직렬화
 # ---------------------------------------------------------------------------
 class TestAnalysisResultModel:
@@ -549,7 +460,6 @@ class TestAnalysisResultModel:
         vosc = analyze_vertical_oscillation(
             synthetic_running_df, synthetic_strikes
         )
-        asym = analyze_asymmetry(synthetic_strikes, knee, vosc)
 
         result = AnalysisResult(
             analysis_id="test-001",
@@ -560,7 +470,6 @@ class TestAnalysisResultModel:
                 "overstriding": over,
                 "vertical_oscillation": vosc,
             },
-            asymmetry=asym,
             danger_timestamps=[DangerTimestamp(time_sec=1.23, type="heel_strike")],
         )
         payload = result.model_dump_json()

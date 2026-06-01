@@ -85,9 +85,6 @@ def main() -> int:
         )
     )
 
-    print("\n=== ASYMMETRY ===")
-    print(json.dumps(payload["asymmetry"], indent=2, ensure_ascii=False))
-
     print(f"\n=== DANGER TIMESTAMPS ({len(payload['danger_timestamps'])}) ===")
     for d in payload["danger_timestamps"][:20]:
         print(f"  t={d['time_sec']:.2f}s  type={d['type']}")

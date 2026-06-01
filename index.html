@@ -1544,10 +1544,6 @@ function formatCm(v) {
   return Number.isFinite(Number(v)) ? `${(Number(v) * 100).toFixed(1)} cm` : '측정 중';
 }
 
-function formatRatioPct(v) {
-  return Number.isFinite(Number(v)) ? `${Math.round(Number(v) * 100)}%` : '측정 중';
-}
-
 function getTreadmillSpeed(resultData) {
   const raw = resultData?.user_metrics?.treadmill_speed_kmh
            ?? resultData?.analysis_result?.summary?.treadmill_speed_kmh
@@ -1642,33 +1638,36 @@ function makeMetricCards(resultData, danger) {
 const PRIMARY_METRIC_IDS = ['knee', 'strike', 'stride'];
 
 function makeRunningStyle(resultData, metricCards) {
+  // 실측 지표(무릎·착지·오버스트라이딩·수직진폭·케이던스)만으로 러닝 유형 판정.
+  // 좌·우 비대칭은 제품 범위 외(상단 주석 참조)라 사용하지 않는다.
   const r = resultData?.analysis_result || {};
   const m = r.metrics || {};
+  const summary = r.summary || {};
   const speed = getTreadmillSpeed(resultData);
+  const spd = speed ? `${speed.toFixed(1)} km/h` : '';
   const heel = m.foot_strike?.status_counts?.heel ?? 0;
   const over = m.overstriding?.status_counts?.over ?? 0;
-  const tibia = m.landing_tibia?.status_counts?.overreach ?? 0;
   const stiff = m.knee_flexion?.status_counts?.stiff ?? 0;
-  const osc = Number(m.vertical_oscillation?.avg_value);
-  const torso = m.torso_posture?.status;
-  const head = m.head_position?.status;
-  const total = r.summary?.total_strikes ?? 0;
+  const oscHigh = m.vertical_oscillation?.status === 'high';
+  const cadHint = summary.cadence_hint;      // 'low' | 'high' | 'optimal' | undefined
+  const cadSpm = Number(summary.cadence_spm);
+  const total = summary.total_strikes ?? 0;
 
-  if (over + tibia >= 3) {
+  if (over >= 3) {
     return {
       name: '과보폭형',
       tone: 'warn',
-      summary: `속도 ${speed ? `${speed.toFixed(1)}km/h` : '입력값'}에서 발이 몸보다 앞에 떨어지는 경향이 보여요.`,
-      evidence: [`전방 착지 ${over + tibia}회`, total ? `착지 ${total}회 중` : '', speed ? `${speed.toFixed(1)} km/h` : '속도 입력'],
+      summary: '발이 몸보다 앞에 떨어지는 경향이 보여요.',
+      evidence: [`오버스트라이딩 ${over}회`, total ? `착지 ${total}회 중` : '', spd].filter(Boolean),
       target: '다음 목표: 발 착지 위치를 엉덩이 아래에 더 가깝게',
     };
   }
-  if (heel >= 3 || (Number.isFinite(osc) && osc >= 0.04)) {
+  if (heel >= 3 || oscHigh) {
     return {
       name: '충격형',
       tone: 'warn',
       summary: '착지 충격이나 위아래 흔들림이 커질 수 있는 패턴이에요.',
-      evidence: [`뒤꿈치 ${heel}회`, Number.isFinite(osc) ? `진폭 ${formatCm(osc)}` : '', speed ? `${speed.toFixed(1)} km/h` : ''],
+      evidence: [heel ? `뒤꿈치 ${heel}회` : '', oscHigh ? '수직 진폭 큼' : '', spd].filter(Boolean),
       target: '다음 목표: 발소리를 줄이고 케이던스를 살짝 올리기',
     };
   }
@@ -1677,25 +1676,27 @@ function makeRunningStyle(resultData, metricCards) {
       name: '경직형',
       tone: 'warn',
       summary: '착지 때 무릎 완충이 부족해 다리가 뻣뻣하게 보일 수 있어요.',
-      evidence: [`경직 ${stiff}회`, `무릎 ${formatDegree(m.knee_flexion?.avg_angle)}`, speed ? `${speed.toFixed(1)} km/h` : ''],
+      evidence: [`경직 ${stiff}회`, `무릎 ${formatDegree(m.knee_flexion?.avg_angle)}`, spd].filter(Boolean),
       target: '다음 목표: 착지 순간 무릎을 잠그지 않기',
     };
   }
-  if (torso === 'excessive_lean' || head === 'forward_head') {
+  if (cadHint === 'low') {
+    const band = summary.expected_cadence_min
+      ? `목표 ${summary.expected_cadence_min}–${summary.expected_cadence_max} spm` : '';
     return {
-      name: '상체 쏠림형',
+      name: '케이던스 부족형',
       tone: 'warn',
-      summary: '몸통이나 머리가 앞으로 쏠려 보폭과 착지 위치에 영향을 줄 수 있어요.',
-      evidence: [`몸통 ${formatDegree(m.torso_posture?.avg_angle)}`, `머리 ${formatRatioPct(m.head_position?.avg_ratio)}`, speed ? `${speed.toFixed(1)} km/h` : ''],
-      target: '다음 목표: 시선을 전방에 두고 발목부터 가볍게 기울이기',
+      summary: '분당 스텝 수가 목표보다 낮아 보폭에 의존하는 패턴이에요.',
+      evidence: [Number.isFinite(cadSpm) ? `${Math.round(cadSpm)} spm` : '', band, spd].filter(Boolean),
+      target: '다음 목표: 보폭을 줄이고 케이던스를 5~10 올리기',
     };
   }
   const good = metricCards.filter(card => card.tone === 'success').slice(0, 3).map(card => card.label);
   return {
     name: '안정형',
     tone: 'success',
-    summary: '현재 속도에서 착지와 상체 흐름이 비교적 안정적인 패턴이에요.',
-    evidence: [speed ? `${speed.toFixed(1)} km/h` : '', ...good].filter(Boolean),
+    summary: '현재 속도에서 착지와 리듬이 비교적 안정적인 패턴이에요.',
+    evidence: [spd, ...good].filter(Boolean),
     target: '다음 목표: 같은 속도로 반복 측정해 일관성 확인',
   };
 }
@@ -1720,31 +1721,15 @@ function makeImprovementItems(resultData, metricCards) {
     items.push({ title, body, tone, evidence: evidence.filter(Boolean).slice(0, 3) });
   };
 
-  const tibiaOver = m.landing_tibia?.status_counts?.overreach ?? 0;
   const heel = m.foot_strike?.status_counts?.heel ?? 0;
   const over = m.overstriding?.status_counts?.over ?? 0;
-  const torso = m.torso_posture?.status;
-  const arm = m.arm_position?.status;
-  const head = m.head_position?.status;
   const kneeCounts = m.knee_flexion?.status_counts || {};
   const kneeAvg = m.knee_flexion?.avg_angle;
   const overAvg = m.overstriding?.avg_distance;
   const oscAvg = m.vertical_oscillation?.avg_value;
-  const tibiaAvg = m.landing_tibia?.avg_angle;
-  const torsoAvg = m.torso_posture?.avg_angle;
-  const armAvg = m.arm_position?.avg_angle;
-  const headAvg = m.head_position?.avg_ratio;
   const totalStrikes = r.summary?.total_strikes;
   const strikeText = Number.isFinite(Number(totalStrikes)) ? `총 ${totalStrikes}회 착지 중` : '분석된 착지 중';
 
-  if (tibiaOver > 0) {
-    add(
-      '발을 몸 아래에 더 가깝게',
-      `${strikeText} 정강이가 앞쪽으로 기울어진 착지가 ${tibiaOver}회 나왔어요. 평균 정강이 각도는 ${formatDegree(tibiaAvg)}입니다.`,
-      tibiaOver >= 3 ? 'danger' : 'warn',
-      [`위험 ${tibiaOver}회`, `평균 ${formatDegree(tibiaAvg)}`, momentText(['overreach_tibia'])]
-    );
-  }
   if (over > 0) {
     add(
       '보폭을 살짝 줄이기',
@@ -1767,44 +1752,6 @@ function makeImprovementItems(resultData, metricCards) {
       `무릎이 펴진 착지가 ${kneeCounts.stiff}회 감지됐어요. 평균 무릎 굴곡은 ${formatDegree(kneeAvg)}라서 착지 순간 완충을 조금 더 만들면 좋아요.`,
       (kneeCounts.stiff ?? 0) >= 3 ? 'danger' : 'warn',
       [`경직 ${kneeCounts.stiff}회`, `평균 ${formatDegree(kneeAvg)}`, momentText(['stiff_knee'])]
-    );
-  }
-  if (torso === 'too_upright') {
-    add(
-      '몸통을 아주 살짝 앞으로',
-      `평균 몸통 기울기가 ${formatDegree(torsoAvg)}로 거의 세워진 흐름이에요. 허리를 접기보다 발목부터 아주 살짝 기울여보세요.`,
-      'warn',
-      [`몸통 ${formatDegree(torsoAvg)}`, `진폭 ${formatCm(oscAvg)}`]
-    );
-  } else if (torso === 'excessive_lean') {
-    add(
-      '상체 숙임 줄이기',
-      `평균 몸통 기울기가 ${formatDegree(torsoAvg)}로 크게 나왔어요. 가슴과 시선을 편하게 들어 보폭이 앞으로 끌려가지 않게 해보세요.`,
-      'warn',
-      [`몸통 ${formatDegree(torsoAvg)}`, `진폭 ${formatCm(oscAvg)}`]
-    );
-  }
-  if (arm === 'too_tight') {
-    add(
-      '팔 긴장 풀기',
-      `평균 팔꿈치 각도가 ${formatDegree(armAvg)}로 좁게 잡혔어요. 어깨 힘을 빼고 팔이 앞뒤로 자연스럽게 지나가게 해보세요.`,
-      'warn',
-      [`팔 ${formatDegree(armAvg)}`]
-    );
-  } else if (arm === 'too_open') {
-    add(
-      '팔꿈치를 자연스럽게 접기',
-      `평균 팔꿈치 각도가 ${formatDegree(armAvg)}로 크게 열렸어요. 팔을 조금 더 접으면 상체 리듬이 안정될 수 있습니다.`,
-      'warn',
-      [`팔 ${formatDegree(armAvg)}`]
-    );
-  }
-  if (head === 'forward_head') {
-    add(
-      '목을 길게 세우기',
-      `머리 전방 쏠림 비율이 평균 ${formatRatioPct(headAvg)}로 나왔어요. 턱을 살짝 당기고 시선을 전방에 둬보세요.`,
-      'warn',
-      [`머리 ${formatRatioPct(headAvg)}`]
     );
   }
 

@@ -45,7 +45,6 @@ class AnalysisResult(BaseModel):
     analysis_id: str
     summary: dict
     metrics: dict  # {knee_flexion, foot_strike, overstriding, vertical_oscillation}
-    asymmetry: dict
     danger_timestamps: list[DangerTimestamp] = Field(default_factory=list)
 
     # PRD-8: 입력 영상 품질 평가.

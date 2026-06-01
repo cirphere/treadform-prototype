@@ -135,12 +135,6 @@ def _synth_result(confidence: str = "high") -> AnalysisResult:
                 "per_stride": [],
             },
         },
-        asymmetry={
-            "strike_count_ratio": 0.0,
-            "knee_angle_ratio": 0.0,
-            "oscillation_ratio": 0.0,
-            "is_warning": False,
-        },
         confidence=confidence,
     )
 

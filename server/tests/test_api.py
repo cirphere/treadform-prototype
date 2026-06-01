@@ -71,7 +71,6 @@ def _mock_analysis(monkeypatch):
                     "overstriding": {"status_counts": {}, "per_strike": []},
                     "vertical_oscillation": {"status": "good", "per_stride": []},
                 },
-                asymmetry={"is_warning": False},
                 confidence="high",
             ),
             "rendered_video_path": f"{output_dir}/renders/mock.mp4",

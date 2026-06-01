@@ -112,7 +112,6 @@ def get_member_history(member_id: str) -> dict:
                     "analysis_id": "uuid",
                     "completed_at": "2026-...",
                     "summary": {...},
-                    "asymmetry": {...},
                     "confidence": "high",
                 }, ...
             ]
@@ -139,7 +138,6 @@ def get_member_history(member_id: str) -> dict:
             "analysis_id": aid,
             "completed_at": entry.get("completed_at"),
             "summary": ar.summary,
-            "asymmetry": ar.asymmetry,
             "confidence": ar.confidence,
         })
 

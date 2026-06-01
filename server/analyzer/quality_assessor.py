@@ -9,8 +9,6 @@ video_validator 가 하드 요건을 통과시킨 영상에 대해서만 호출�
     LOW_VISIBILITY            - 평균 visibility < WARN_LOW_AVG_VISIBILITY
     HIGH_CADENCE_LOW_FPS      - cadence ≥ WARN_HIGH_CADENCE_SPM AND fps < WARN_FPS_FOR_HIGH_CADENCE
     NOT_SIDE_VIEW             - 양 어깨 x 거리 / 토르소 길이 > WARN_SIDE_ANGLE_DEVIATION
-    SIDE_VIEW_ASYM_CAUTION    - 측면 촬영에서 비대칭 워닝이 떴을 때 해석 caveat
-                                (assess() 이후 apply_asymmetry_caveats() 로 첨부)
 """
 from __future__ import annotations
 
@@ -164,33 +162,7 @@ def assess(
     return QualityReport(confidence=confidence, warnings=warnings, metrics=metrics)
 
 
-SIDE_VIEW_ASYM_CAUTION = {
-    "code": "SIDE_VIEW_ASYM_CAUTION",
-    "message_ko": (
-        "측면 촬영에서는 카메라 반대쪽 다리의 가림으로 좌우 비대칭 검출에 한계가 "
-        "있습니다. 비대칭 결과는 참고용으로 확인해주세요."
-    ),
-}
-
-
-def apply_asymmetry_caveats(quality: QualityReport, asym: dict) -> QualityReport:
-    """비대칭 워닝이 떴지만 측면 촬영이 의심되지 않을 때 정보성 caveat 카드 추가.
-
-    NOT_SIDE_VIEW 워닝이 이미 있다면 중복 안내를 피해 추가하지 않는다.
-    confidence 등급은 변경하지 않는다 — caveat 은 해석 가이드이지 품질 강등이
-    아니므로 assess() 단계의 등급 산정을 보존한다.
-    """
-    if not asym.get("is_warning"):
-        return quality
-    if any(w["code"] == "NOT_SIDE_VIEW" for w in quality.warnings):
-        return quality
-    quality.warnings = [*quality.warnings, dict(SIDE_VIEW_ASYM_CAUTION)]
-    return quality
-
-
 __all__ = [
     "QualityReport",
     "assess",
-    "SIDE_VIEW_ASYM_CAUTION",
-    "apply_asymmetry_caveats",
 ]

@@ -35,7 +35,6 @@ def _result() -> AnalysisResult:
                 ]
             },
         },
-        asymmetry={},
         confidence="high",
     )
 
@@ -71,7 +70,6 @@ def test_collect_empty_when_no_danger():
             "overstriding": {"per_strike": []},
             "vertical_oscillation": {"per_stride": []},
         },
-        asymmetry={},
         confidence="high",
     )
     assert collect_danger_timestamps(empty, fps=30.0) == []

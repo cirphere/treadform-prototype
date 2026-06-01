@@ -70,12 +70,6 @@ def _result_with_strike(frame: int = 5) -> AnalysisResult:
                 "per_stride": [],
             },
         },
-        asymmetry={
-            "strike_count_ratio": 1.0,
-            "knee_angle_ratio": 0.0,
-            "oscillation_ratio": 0.0,
-            "is_warning": True,
-        },
         confidence="high",
     )
 

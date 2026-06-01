@@ -27,7 +27,6 @@ def _build_result(
     vertical_status: str = "good",
     vertical_avg_value_cm: float | None = None,
     vertical_threshold_cm: float | None = None,
-    asymmetry: dict | None = None,
     confidence: str = "high",
     knee_per_strike: list | None = None,
     fs_per_strike: list | None = None,
@@ -75,13 +74,6 @@ def _build_result(
                 "threshold_cm": vertical_threshold_cm,
             },
         },
-        asymmetry=asymmetry
-        or {
-            "strike_count_ratio": 0.0,
-            "knee_angle_ratio": 0.0,
-            "oscillation_ratio": 0.0,
-            "is_warning": False,
-        },
         confidence=confidence,
     )
 
@@ -91,19 +83,13 @@ def _build_result(
 # ---------------------------------------------------------------------------
 
 
-def test_priority_asymmetry_first():
-    r = _build_result(
-        asymmetry={
-            "strike_count_ratio": 0.3,
-            "knee_angle_ratio": 0.1,
-            "oscillation_ratio": 0.0,
-            "is_warning": True,
-        },
-        fs_counts={"heel": 8, "midfoot": 2, "forefoot": 0},
-    )
+def test_priority_excludes_asymmetry():
+    # 좌·우 비대칭은 제품에서 제거됨 — 우선순위에 절대 등장하지 않고
+    # 실측 이슈(heel)만 잡혀야 한다 (2026-06-02).
+    r = _build_result(fs_counts={"heel": 8, "midfoot": 2, "forefoot": 0})
     issues = select_priority_issues(r)
-    assert issues[0] == "asymmetry"
-    assert "foot_strike_heel" in issues
+    assert "asymmetry" not in issues
+    assert issues[0] == "foot_strike_heel"
 
 
 def test_priority_heel_strike_threshold():
@@ -138,18 +124,12 @@ def test_message_all_good_includes_positive_token():
     assert "오늘 러닝" in msg
 
 
-def test_message_asymmetry_warning_appears():
-    r = _build_result(
-        asymmetry={
-            "strike_count_ratio": 0.2,
-            "knee_angle_ratio": 0.05,
-            "oscillation_ratio": 0.0,
-            "is_warning": True,
-        }
-    )
+def test_message_excludes_asymmetry():
+    # 코칭 메시지에는 좌·우 비대칭 문구가 절대 포함되지 않아야 한다 (2026-06-02 제거).
+    r = _build_result()
     msg = generate_korean_coach_message(r)
-    assert "비대칭" in msg
-    assert "20%" in msg  # max ratio 가 0.2 → 20%
+    assert "비대칭" not in msg
+    assert "안정적" in msg or "👍" in msg
 
 
 def test_message_low_confidence_prefix():
@@ -219,12 +199,6 @@ def test_message_max_issues_truncation():
         fs_counts={"heel": 8, "midfoot": 2, "forefoot": 0},
         over_counts={"good": 5, "over": 5},
         vertical_status="high",
-        asymmetry={
-            "strike_count_ratio": 0.3,
-            "knee_angle_ratio": 0.0,
-            "oscillation_ratio": 0.0,
-            "is_warning": True,
-        },
     )
     msg = generate_korean_coach_message(r, max_issues=2)
     assert "2가지" in msg

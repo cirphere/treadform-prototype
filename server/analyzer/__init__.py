@@ -91,23 +91,6 @@ def _validate_or_raise(video_path: str) -> None:
         )
 
 
-def _avg_foot_visibility(raw_df, side: str) -> float:
-    """좌 또는 우 발(heel/foot_index/ankle) 의 visibility 평균.
-
-    `analyze_asymmetry` 에 넘겨 좌/우 검출 신뢰도 차이로 strike_count 비대칭
-    신호를 무력화시키는 데 사용 (occlusion 으로 한쪽이 안 잡힌 경우 자동 식별).
-    """
-    cols = [
-        f"{side}_heel_visibility",
-        f"{side}_foot_index_visibility",
-        f"{side}_ankle_visibility",
-    ]
-    available = [c for c in cols if c in raw_df.columns]
-    if not available or len(raw_df) == 0:
-        return float("nan")
-    return float(raw_df[available].mean(skipna=True).mean())
-
-
 def _analyze_from_raw_df(
     raw_df,
     video_path: str,
@@ -130,7 +113,6 @@ def _analyze_from_raw_df(
         classify_cadence,
     )
     from analyzer.foot_strike_detector import detect_left_right_strikes
-    from analyzer.metrics.asymmetry import analyze_asymmetry
     from analyzer.metrics.foot_strike import analyze_foot_strike
     from analyzer.metrics.knee_flexion import analyze_knee_flexion
     from analyzer.metrics.overstriding import analyze_overstriding
@@ -157,11 +139,6 @@ def _analyze_from_raw_df(
         "overstriding": over,
         "vertical_oscillation": vosc,
     }
-    foot_visibility = {
-        "left": _avg_foot_visibility(raw_df, "left"),
-        "right": _avg_foot_visibility(raw_df, "right"),
-    }
-    asym = analyze_asymmetry(strikes, knee, vosc, foot_visibility=foot_visibility)
 
     fps = float(df.attrs.get("fps", TARGET_FPS))
     danger = _collect_danger_timestamps(metrics, fps)
@@ -171,7 +148,6 @@ def _analyze_from_raw_df(
     cadence_spm = (total_strikes / duration_min) if duration_min > 0 else 0.0
 
     quality = quality_assessor.assess(raw_df, fps=fps, cadence_spm=cadence_spm)
-    quality = quality_assessor.apply_asymmetry_caveats(quality, asym)
 
     summary = {
         "total_frames": int(len(df)),
@@ -200,7 +176,6 @@ def _analyze_from_raw_df(
         analysis_id=Path(video_path).stem + "-" + uuid.uuid4().hex[:8],
         summary=summary,
         metrics=metrics,
-        asymmetry=asym,
         danger_timestamps=danger,
         confidence=quality.confidence,
         warnings=[QualityWarning(**w) for w in quality.warnings],

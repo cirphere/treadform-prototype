@@ -204,32 +204,6 @@ VO_HIGH_THRESHOLD_CM = 10.0
 
 
 # =============================================================================
-# 10. 좌우 비대칭 (보조 지표)
-# =============================================================================
-# |L - R| / max(L, R) 이 이 값을 넘으면 경고.
-# is_warning 트리거는 knee_angle 과 oscillation 두 지표에 한정한다.
-# strike_count 비대칭은 측면 촬영의 far-side leg occlusion 노이즈가 dominant
-# 신호이므로 단독 트리거에서 제외하고, 결과 객체에 ratio 만 정보성으로 노출한다
-# (4 pace 영상 같은 동일 러너 정상 자세에서 strike diff 3 false positive 다발 확인,
-# 2026-05-16). 진짜 비대칭(절뚝/비스듬런) 은 knee 또는 osc 에 동시에 신호가 잡힌다.
-# [Ref] Zifchock et al. 2008 Gait Posture (doi:10.1016/j.gaitpost.2007.08.006) —
-#       Symmetry Index 정량 방법론. Pappas et al. 2015 Hum Mov Sci 40:273-283
-#       (PMID:25625812) — healthy 러너 자연 ASI 1.81~6.38% → 10% 가 healthy 분포
-#       너머의 임상 의미. Parkinson et al. 2021 J Sports Sci Med 20(4):594-617
-#       (DOI:10.52082/jssm.2021.594) systematic review — 10~15% 임계가 후속 임상
-#       문헌의 합의된 채택 범위. PRD-2 §R5/§R6 (자체 검증 포함).
-ASYMMETRY_WARNING_THRESHOLD = 0.1   # 10%
-
-# 좌/우 발 평균 visibility 차이가 이 값을 초과하면 strike_count_ratio 를 NaN 으로
-# 대체한다 — 한쪽 발이 occlusion 으로 검출 신뢰도가 낮으면 strike count 차이가
-# 실제 비대칭이 아닌 검출 누락일 가능성이 높기 때문 (사용자에게도 NaN 으로 노출되어
-# 신뢰할 수 없는 신호임을 명시).
-# [Ref] BlazePose paper (Bazarevsky 2020) — visibility 출력은 키포인트 검출
-#       신뢰도. PRD-2 §R6 (자체 검증 데이터 + 이론적 배경).
-ASYMMETRY_FOOT_VIS_DIFF_THRESHOLD = 0.10
-
-
-# =============================================================================
 # 11. 입력 영상 사양 (PRD-8)
 # =============================================================================
 # 분석 알고리즘(MediaPipe heavy + Hampel + One Euro) 은 자체 정확도 천장에 도달했고,

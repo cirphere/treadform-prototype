@@ -27,7 +27,7 @@
 - [ ] 분석 결과 화면에서 렌더링 영상 인앱 재생
 - [ ] 타임라인에 Danger 빨간 마커 표시
 - [ ] Danger 구간 진입 시 자동 0.5배속 재생
-- [ ] 3대 지표 + 비대칭 🔴🟡🟢 뱃지로 시각화
+- [ ] 3대 지표 🔴🟡🟢 뱃지로 시각화
 - [ ] 한국어 코칭 메시지 카드 형태로 표시
 - [ ] **결과 화면 상단에 신뢰도 배지** (`high`/`medium`/`low`, PRD-8)
 - [ ] **경고 리스트 카드** (`warnings[].message_ko`, 빈 배열일 땐 미표시)
@@ -308,7 +308,7 @@ const styles = StyleSheet.create({
 });
 ```
 
-### 7. `src/components/MetricsSummary.tsx` (3대 지표 + 비대칭 통합)
+### 7. `src/components/MetricsSummary.tsx` (3대 지표 통합)
 
 ```typescript
 import React from 'react';
@@ -317,7 +317,6 @@ import { MetricBadge } from './MetricBadge';
 
 interface Props {
   metrics: any;       // API 응답의 metrics 객체
-  asymmetry: any;
 }
 
 type Status = 'safe' | 'warning' | 'danger';
@@ -339,9 +338,9 @@ function pickFootStrikeStatus(fs: any): { status: Status; detail: string } {
   return { status: 'safe', detail: '중족 착지 안정' };
 }
 
-// ... overstriding, vertical_oscillation, asymmetry 동일 패턴
+// ... overstriding, vertical_oscillation 동일 패턴
 
-export const MetricsSummary: React.FC<Props> = ({ metrics, asymmetry }) => {
+export const MetricsSummary: React.FC<Props> = ({ metrics }) => {
   const knee = pickKneeStatus(metrics.knee_flexion);
   const foot = pickFootStrikeStatus(metrics.foot_strike);
   // ...
@@ -493,7 +492,7 @@ export const ResultScreen: React.FC = () => {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>분석 결과 요약</Text>
-          <MetricsSummary metrics={result.metrics} asymmetry={result.asymmetry} />
+          <MetricsSummary metrics={result.metrics} />
         </View>
       </View>
 
@@ -664,7 +663,6 @@ const styles = StyleSheet.create({
     "footStrike": "발 착지 유형",
     "overstriding": "오버스트라이딩",
     "verticalOscillation": "수직 진폭",
-    "asymmetry": "좌우 비대칭",
     "coachFeedback": "AI 코칭 피드백",
     "share": "결과 공유",
     "home": "처음으로",

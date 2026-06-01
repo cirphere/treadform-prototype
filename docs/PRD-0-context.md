@@ -115,8 +115,7 @@ treadform/
 │   │       ├── knee_flexion.py
 │   │       ├── foot_strike.py
 │   │       ├── overstriding.py
-│   │       ├── vertical_osc.py
-│   │       └── asymmetry.py
+│   │       └── vertical_osc.py
 │   │
 │   ├── models/                      # Pydantic 스키마
 │   ├── .models/                     # mediapipe heavy.task 자동 캐시 (gitignored)
@@ -248,7 +247,7 @@ ln -s PRD-0-context.md CLAUDE.md
 
 - [ ] 트레드밀 측면 촬영 영상을 앱에서 업로드 가능
 - [ ] 서버가 60초 이내 분석 완료
-- [ ] 3대 지표 + 좌/우 비대칭 측정 정확
+- [ ] 3대 지표 측정 정확
 - [ ] 스켈레톤 오버레이 영상 + Danger 마커 표시
 - [ ] 한국어 코칭 메시지 자연스러움
 - [ ] 트레이너 모드 토글 동작

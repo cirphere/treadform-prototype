@@ -682,7 +682,6 @@ interface AnalysisAPIResponse {
   csv_url: string;
   summary: object;
   metrics: object;
-  asymmetry: object;
   danger_timestamps: Array<{ time_sec: number; type: string; color: string }>;
   coach_message_ko: string;
 }

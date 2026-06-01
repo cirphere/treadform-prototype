@@ -615,7 +615,7 @@ class QualityWarning(BaseModel):
 
 ### [V3] 영상 길이 (5~60초)
 
-- **하한 5초**: 안정적 비대칭 + 평균 지표 산출에 좌/우 각각 최소 5~7회 strike 필요. 6:00/km 페이스 cadence 170 spm × 5s ≈ 14 steps (좌/우 7씩). [Zifchock 2008 PRD-2 R5] 의 비대칭 통계 안정성 가이드 참조.
+- **하한 5초**: 안정적 평균 지표 산출에 좌/우 각각 최소 5~7회 strike 필요. 6:00/km 페이스 cadence 170 spm × 5s ≈ 14 steps (좌/우 7씩).
 - **상한 60초**: 후처리 분석 elapsed time 제약 (Pose 추출 + 렌더링이 영상 길이 × ~10 배). BENCHMARK.md 측정치 (60fps 1080p 60s → ~10 분 분석) 와 UX 대기 한계의 교차점.
 
 ### [V4] 평균 visibility 임계 (0.6) 및 검출률 임계 (0.7)
