@@ -28,11 +28,6 @@ def _result() -> AnalysisResult:
                     {"frame": 90, "distance": 0.2, "status": "over_stride", "foot": "right"},
                 ]
             },
-            "landing_tibia": {
-                "per_strike": [
-                    {"frame": 120, "angle": 18.0, "status": "overreach_tibia", "foot": "right"},
-                ]
-            },
             "vertical_oscillation": {
                 "per_stride": [
                     {"start_frame": 0, "end_frame": 60, "value": 0.1,
@@ -48,9 +43,9 @@ def _result() -> AnalysisResult:
 def test_collect_returns_only_danger():
     danger = collect_danger_timestamps(_result(), fps=30.0)
     types = [d.type for d in danger]
-    # stiff_knee + heel_strike + high_oscillation + over_stride + overreach_tibia 모두 포함.
+    # stiff_knee + heel_strike + high_oscillation + over_stride 모두 포함.
     assert sorted(types) == sorted(
-        ["stiff_knee", "heel_strike", "over_stride", "high_oscillation", "overreach_tibia"]
+        ["stiff_knee", "heel_strike", "over_stride", "high_oscillation"]
     )
 
 
@@ -74,7 +69,6 @@ def test_collect_empty_when_no_danger():
             "knee_flexion": {"per_strike": []},
             "foot_strike": {"per_strike": []},
             "overstriding": {"per_strike": []},
-            "landing_tibia": {"per_strike": []},
             "vertical_oscillation": {"per_stride": []},
         },
         asymmetry={},

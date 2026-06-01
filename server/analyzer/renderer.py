@@ -82,25 +82,9 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont:
 
 
 def _status_color_bgr(status: str) -> tuple[int, int, int]:
-    if status in (
-        "heel_strike",
-        "stiff_knee",
-        "over_stride",
-        "high_oscillation",
-        "overreach_tibia",
-        "excessive_lean",
-        "forward_head",
-    ):
+    if status in ("heel_strike", "stiff_knee", "over_stride", "high_oscillation"):
         return COLOR_DANGER_BGR
-    if status in (
-        "borderline",
-        "forefoot_strike",
-        "over_bent",
-        "too_upright",
-        "too_tight",
-        "too_open",
-        "unknown",
-    ):
+    if status in ("borderline", "forefoot_strike", "over_bent"):
         return COLOR_WARNING_BGR
     return COLOR_SAFE_BGR
 
@@ -224,173 +208,6 @@ def draw_text_overlay(
     draw.text(origin, line, font=font, fill=_bgr_to_rgb(color_bgr))
 
     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-
-
-def _metric_value(metrics: dict, key: str, field: str, fmt: str = "degree") -> str:
-    value = metrics.get(key, {}).get(field)
-    if not isinstance(value, (int, float)) or np.isnan(float(value)):
-        return "측정"
-    if fmt == "ratio":
-        return f"{float(value) * 100:.0f}%"
-    if fmt == "cm":
-        return f"{float(value) * 100:.1f}cm"
-    return f"{float(value):.0f}°"
-
-
-def _metric_status(metrics: dict, key: str, default: str = "") -> str:
-    return str(metrics.get(key, {}).get("status") or default)
-
-
-def _midpoint_px(
-    keypoints: dict,
-    a: PoseLandmark,
-    b: PoseLandmark,
-    w: int,
-    h: int,
-) -> tuple[int, int] | None:
-    pa = _landmark_xy_px(keypoints, a, w, h)
-    pb = _landmark_xy_px(keypoints, b, w, h)
-    if pa is None:
-        return pb
-    if pb is None:
-        return pa
-    return int(round((pa[0] + pb[0]) / 2)), int(round((pa[1] + pb[1]) / 2))
-
-
-def _clamp_label_origin(
-    x: int,
-    y: int,
-    text_w: int,
-    text_h: int,
-    frame_w: int,
-    frame_h: int,
-) -> tuple[int, int]:
-    return (
-        max(6, min(frame_w - text_w - 6, x)),
-        max(6, min(frame_h - text_h - 6, y)),
-    )
-
-
-def _draw_label(
-    draw: ImageDraw.ImageDraw,
-    text: str,
-    anchor: tuple[int, int] | None,
-    offset: tuple[int, int],
-    color_rgb: tuple[int, int, int],
-    frame_w: int,
-    frame_h: int,
-    font: ImageFont.FreeTypeFont,
-) -> None:
-    if anchor is None:
-        return
-    x = anchor[0] + offset[0]
-    y = anchor[1] + offset[1]
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    pad_x = 9
-    pad_y = 6
-    box_w = text_w + pad_x * 2
-    box_h = text_h + pad_y * 2
-    x, y = _clamp_label_origin(x, y, box_w, box_h, frame_w, frame_h)
-    radius = 8
-    box = (x, y, x + box_w, y + box_h)
-    draw.rounded_rectangle(
-        box,
-        radius=radius,
-        fill=(255, 255, 255, 230),
-        outline=color_rgb + (255,),
-        width=2,
-    )
-    draw.text((x + pad_x, y + pad_y - 1), text, font=font, fill=(15, 23, 42, 255))
-
-
-def draw_dynamic_metric_labels(
-    frame: np.ndarray,
-    keypoints: dict,
-    metrics: dict,
-    active_slot: dict | None,
-) -> np.ndarray:
-    """
-    현재 프레임의 keypoint 위치를 따라다니는 지표 라벨을 그린다.
-
-    값은 analysis_result.metrics 에서 읽고, 위치는 현재 프레임의 MediaPipe 좌표를
-    사용한다. 따라서 라벨 박스는 러너의 움직임에 맞춰 이동한다.
-    """
-    h, w = frame.shape[:2]
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    img = Image.fromarray(rgb).convert("RGBA")
-    draw = ImageDraw.Draw(img)
-    font = _load_font(18)
-
-    knee_entry = (active_slot or {}).get("knee", {})
-    tibia_entry = (active_slot or {}).get("tibia", {})
-    foot_entry = (active_slot or {}).get("foot_strike", {})
-    foot = (active_slot or {}).get("foot")
-
-    knee_value = knee_entry.get("angle")
-    knee_text = (
-        f"무릎 {float(knee_value):.0f}°"
-        if isinstance(knee_value, (int, float)) and not np.isnan(float(knee_value))
-        else f"무릎 {_metric_value(metrics, 'knee_flexion', 'avg_angle')}"
-    )
-    tibia_value = tibia_entry.get("angle")
-    tibia_text = (
-        f"정강이 {float(tibia_value):.0f}°"
-        if isinstance(tibia_value, (int, float)) and not np.isnan(float(tibia_value))
-        else f"정강이 {_metric_value(metrics, 'landing_tibia', 'avg_angle')}"
-    )
-    strike_counts = metrics.get("foot_strike", {}).get("status_counts", {})
-    strike_text = f"착지 뒤꿈치 {int(strike_counts.get('heel', 0))}회"
-
-    side = foot if foot in ("left", "right") else "left"
-    knee_lm = PoseLandmark.LEFT_KNEE if side == "left" else PoseLandmark.RIGHT_KNEE
-    ankle_lm = PoseLandmark.LEFT_ANKLE if side == "left" else PoseLandmark.RIGHT_ANKLE
-    elbow_lm = PoseLandmark.LEFT_ELBOW if side == "left" else PoseLandmark.RIGHT_ELBOW
-
-    label_specs = [
-        (
-            f"머리 {_metric_value(metrics, 'head_position', 'avg_ratio', fmt='ratio')}",
-            _landmark_xy_px(keypoints, PoseLandmark.NOSE, w, h),
-            (14, -34),
-            _status_color_bgr(_metric_status(metrics, "head_position")),
-        ),
-        (
-            f"몸통 {_metric_value(metrics, 'torso_posture', 'avg_angle')}",
-            _midpoint_px(keypoints, PoseLandmark.LEFT_SHOULDER, PoseLandmark.LEFT_HIP, w, h),
-            (-112, -10),
-            _status_color_bgr(_metric_status(metrics, "torso_posture")),
-        ),
-        (
-            f"팔 {_metric_value(metrics, 'arm_position', 'avg_angle')}",
-            _landmark_xy_px(keypoints, elbow_lm, w, h),
-            (12, -10),
-            _status_color_bgr(_metric_status(metrics, "arm_position")),
-        ),
-        (
-            knee_text,
-            _landmark_xy_px(keypoints, knee_lm, w, h),
-            (12, -18),
-            _status_color_bgr(knee_entry.get("status") or "good_flexion"),
-        ),
-        (
-            tibia_text,
-            _landmark_xy_px(keypoints, ankle_lm, w, h),
-            (14, -28),
-            _status_color_bgr(tibia_entry.get("status") or _metric_status(metrics, "landing_tibia")),
-        ),
-        (
-            strike_text,
-            _landmark_xy_px(keypoints, ankle_lm, w, h),
-            (-126, 22),
-            _status_color_bgr(foot_entry.get("status") or "mid_foot_strike"),
-        ),
-    ]
-
-    for text, anchor, offset, color_bgr in label_specs:
-        _draw_label(draw, text, anchor, offset, _bgr_to_rgb(color_bgr), w, h, font)
-
-    return cv2.cvtColor(np.array(img.convert("RGB")), cv2.COLOR_RGB2BGR)
 
 
 # ---------------------------------------------------------------------------
@@ -520,9 +337,6 @@ def _build_strike_index(metrics: dict) -> dict[int, dict]:
     for entry in metrics.get("overstriding", {}).get("per_strike", []):
         slot = idx.setdefault(int(entry["frame"]), {"foot": entry.get("foot", "")})
         slot["overstride"] = entry
-    for entry in metrics.get("landing_tibia", {}).get("per_strike", []):
-        slot = idx.setdefault(int(entry["frame"]), {"foot": entry.get("foot", "")})
-        slot["tibia"] = entry
     return idx
 
 
@@ -548,7 +362,7 @@ def render_skeleton_video(
             모든 메트릭 수치/per_strike 인덱스는 여기에서 읽으므로 별도의
             분석용 DataFrame 은 필요 없다.
         strike_hold_frames: 착지 시점에 강조 마커를 유지할 추가 프레임 수.
-        smoothing_alpha: 가시화 전용 EMA 계수. 기본 RENDER_SMOOTHING_ALPHA(0.4).
+        smoothing_alpha: 가시화 전용 EMA 계수. 기본 RENDER_SMOOTHING_ALPHA(0.6).
             1.0 이면 평활화를 끄고 despiked 원본을 그대로 사용 (디버그 용도).
 
     Returns:
@@ -575,9 +389,7 @@ def render_skeleton_video(
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # H.264/AVC is much more reliable in mobile Safari/Chrome than mp4v.
-    # OpenCV on macOS maps this to avc1 when available.
-    fourcc = cv2.VideoWriter_fourcc(*"avc1")
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(out), fourcc, fps, (w, h))
     if not writer.isOpened():
         cap.release()
@@ -609,17 +421,13 @@ def render_skeleton_video(
             active_text_color = COLOR_SAFE_BGR
             knee_angle = float("nan")
             knee_status_ko: str | None = None
-            active_label_slot: dict | None = None
 
             for sf in active_strikes.get(frame_idx, []):
                 slot = strike_idx.get(sf, {})
-                if active_label_slot is None:
-                    active_label_slot = slot
                 knee_entry = slot.get("knee")
                 fs_entry = slot.get("foot_strike")
                 over_entry = slot.get("overstride")
-                tibia_entry = slot.get("tibia")
-                for entry in (knee_entry, fs_entry, over_entry, tibia_entry):
+                for entry in (knee_entry, fs_entry, over_entry):
                     if entry is None:
                         continue
                     c = _status_color_bgr(entry.get("status", ""))
@@ -637,9 +445,6 @@ def render_skeleton_video(
                     active_text_color = _status_color_bgr(knee_entry.get("status", ""))
 
             draw_skeleton_on_frame(frame, kp, worst_color)
-            frame = draw_dynamic_metric_labels(
-                frame, kp, analysis_result.metrics, active_label_slot
-            )
 
             # 착지 시점(sf == frame_idx) 발목 강조.
             for sf in active_strikes.get(frame_idx, []):

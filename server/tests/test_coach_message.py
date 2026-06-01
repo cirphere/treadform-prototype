@@ -25,6 +25,8 @@ def _build_result(
     fs_counts: dict | None = None,
     over_counts: dict | None = None,
     vertical_status: str = "good",
+    vertical_avg_value_cm: float | None = None,
+    vertical_threshold_cm: float | None = None,
     asymmetry: dict | None = None,
     confidence: str = "high",
     knee_per_strike: list | None = None,
@@ -69,6 +71,8 @@ def _build_result(
                 "right_avg": 0.05,
                 "status": vertical_status,
                 "per_stride": vert_per_stride or [],
+                "avg_value_cm": vertical_avg_value_cm,
+                "threshold_cm": vertical_threshold_cm,
             },
         },
         asymmetry=asymmetry
@@ -173,6 +177,39 @@ def test_message_vertical_high():
     r = _build_result(vertical_status="high")
     msg = generate_korean_coach_message(r)
     assert "상하" in msg or "수직" in msg or "낮고" in msg
+    # fallback 모드 (cm 메타 없음) 에서는 cm 수치/단위가 메시지에 나오지 않음.
+    assert "cm" not in msg
+
+
+def test_message_vertical_high_cm_aware_includes_value():
+    """cm-aware 모드면 측정값과 임계가 메시지에 명시되어야 한다."""
+    r = _build_result(
+        vertical_status="high",
+        vertical_avg_value_cm=12.3,
+        vertical_threshold_cm=10.0,
+    )
+    msg = generate_korean_coach_message(r)
+    assert "12.3cm" in msg
+    assert "10cm" in msg
+
+
+def test_message_vertical_good_cm_aware_includes_value():
+    """all-good 경로에서도 cm-aware 면 cm 수치 노출."""
+    r = _build_result(
+        vertical_status="good",
+        vertical_avg_value_cm=8.4,
+        vertical_threshold_cm=10.0,
+    )
+    msg = generate_korean_coach_message(r)
+    assert "8.4cm" in msg
+
+
+def test_message_vertical_good_fallback_no_cm():
+    """fallback 모드(cm 없음) all-good 메시지엔 cm 표기 없음."""
+    r = _build_result(vertical_status="good")
+    msg = generate_korean_coach_message(r)
+    assert "수직 진폭이 효율적입니다" in msg
+    assert "cm" not in msg
 
 
 def test_message_max_issues_truncation():

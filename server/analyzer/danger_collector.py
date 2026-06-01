@@ -2,8 +2,7 @@
 🔴 위험 타임스탬프 수집기 (PRD-3).
 
 `AnalysisResult.metrics` 에서 위험 상태(stiff_knee / heel_strike / over_stride /
-high_oscillation / overreach_tibia) 만 추출해 시간순 DangerTimestamp 리스트로
-반환한다.
+high_oscillation) 만 추출해 시간순 DangerTimestamp 리스트로 반환한다.
 
 `analyzer.__init__._collect_danger_timestamps` 와 동일 로직을 외부 모듈로 분리한
 것. PRD-3 산출물(렌더링 영상, CSV 등)이 동일한 위험 타임라인을 공유하기 위함.
@@ -59,15 +58,6 @@ def collect_danger_timestamps(
                 DangerTimestamp(
                     time_sec=_frame_to_sec(entry["frame"], fps),
                     type="over_stride",
-                )
-            )
-
-    for entry in metrics.get("landing_tibia", {}).get("per_strike", []):
-        if entry.get("status") == "overreach_tibia":
-            danger.append(
-                DangerTimestamp(
-                    time_sec=_frame_to_sec(entry["frame"], fps),
-                    type="overreach_tibia",
                 )
             )
 

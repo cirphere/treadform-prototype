@@ -1,147 +1,178 @@
-# TreadForm
+# TreadForm 백엔드 핸드오프 (PRD-1 ~ PRD-3)
 
-> 한국형 트레드밀 러닝 자세 분석 솔루션 — MediaPipe Pose 기반 부상 방지 3대 지표 + 한국어 코칭
+> **수신자**: 백엔드 담당
+> **범위**: 영상 입력 → 분석 → 산출물(렌더 영상 + 한국어 코칭 + CSV) 생성까지
+> **제외**: FastAPI 엔드포인트(PRD-4), 모바일 앱(PRD-5/6), 통합 환경(PRD-7), 운영 데이터
 
-## 프로젝트 소개
+---
 
-TreadForm 은 스마트폰 앱으로 트레드밀 측면 러닝 영상을 촬영·업로드하면 로컬 PC 서버가 MediaPipe Pose 로 분석하여 부상 방지 3대 지표를 한국어 피드백으로 제공하는 B2C/B2B 듀얼 모드 솔루션이다.
+## 1. 무엇이 들어있나
 
-## 핵심 기능
-
-- **부상 방지 3대 지표**: 무릎 굴곡 / Foot Strike & Overstriding / Vertical Oscillation
-- **100% 한국어 UI · 리포트 · AI 코칭**
-- **트레이너 모드 토글**: 한 앱으로 PT 코칭 + 개인 사용
-- **직관적 시각화**: 색상 배지 + Danger 자동 북마크 + 0.5x 슬로우 모션
-- **누적 대시보드**: 회원별 비포/애프터 PT 효과 시각화
-- **입력 영상 자동 검증**: 해상도/fps/길이/세로방향 거부 (PRD-8)
-- **신뢰도 등급 (high/medium/low)**: 빠른 페이스 + 저fps 등 분석 한계 자동 안내
-
-## 시스템 아키텍처
+이 폴더는 **분석 파이프라인 단독 실행에 필요한 최소 세트**입니다. FastAPI 서버 없이도 `python run_analysis.py` 한 번으로 영상 1개를 끝까지 분석할 수 있습니다.
 
 ```
-[모바일 앱 (RN)] → WiFi LAN/Loopback → [로컬 PC 서버 (FastAPI)]
-                                       → MediaPipe Pose (33 keypoints)
-                                       → 5단계 전처리 (mask → Hampel → L/R → ffill → One Euro)
-                                       → 3대 지표 + 코칭 + 렌더링 + CSV
+handoff_prd1-3/
+├── README.md                            ← 이 문서
+├── docs/                                ← PRD 명세 + 참고 자료
+│   ├── PRD-0-context.md                 ★ 항상 먼저 읽기 (공통 제약·아키텍처)
+│   ├── PRD-1-pose-pipeline.md           Pose 추출 + 5단계 전처리 명세
+│   ├── PRD-2-metrics.md                 부상 방지 3대 지표 + 비대칭 명세
+│   ├── PRD-3-render-coach.md            렌더 영상 + 한국어 코칭 + CSV 명세
+│   ├── PRD-8-video-input-spec.md        입력 검증/품질(신뢰도) 명세
+│   ├── REFERENCES.md                    학술 근거 12종
+│   ├── BENCHMARK.md                     성능 측정 결과·기준
+│   └── KNOWN_ISSUES.md                  현재 알려진 한계·해킹 노트
+└── server/
+    ├── config.py                        ★ 모든 임계값·튜닝값 (매직 넘버 금지)
+    ├── requirements.txt                 Python 의존성
+    ├── pytest.ini                       pytest 설정
+    ├── run_analysis.py                  CLI 진입점 (단독 실행 스크립트)
+    ├── video_validator.py               PRD-8 하드 요건 검증 (해상도/fps/길이)
+    ├── pace530.mp4                      테스트용 샘플 영상 (≈8MB, 5:30 pace)
+    │
+    ├── analyzer/                        ★ 분석 파이프라인 본체
+    │   ├── __init__.py                  run_full_analysis / run_full_analysis_with_output
+    │   │
+    │   │   ── PRD-1: Pose & 전처리 ──
+    │   ├── pose_extractor.py            MediaPipe Pose Tasks API (heavy, 33 keypoints)
+    │   ├── preprocessor.py              5단계 전처리 (visibility/Hampel/LR-swap/fill/One-Euro)
+    │   ├── filters.py                   Hampel + One Euro Filter 구현
+    │   ├── foot_strike_detector.py      좌/우 발 독립 추적, 쿨다운 적용한 착지 시점 검출
+    │   ├── quality_assessor.py          confidence(high/medium/low) + warnings 산출
+    │   │
+    │   │   ── PRD-2: 3대 지표 ──
+    │   └── metrics/
+    │       ├── knee_flexion.py          무릎 굴곡 각도 (Stiff/Borderline/Good/OverBent)
+    │       ├── foot_strike.py           착지 유형 (Heel/Mid/Forefoot)
+    │       ├── overstriding.py          오버스트라이딩 (Over/Good)
+    │       ├── vertical_osc.py          수직 진폭 (High/Good)
+    │       └── asymmetry.py             좌우 비대칭 (>10% 경고)
+    │
+    │       ── PRD-3: 산출물 생성 ──
+    │   ├── renderer.py                  3-Layer 스켈레톤 오버레이 MP4 (720p/30fps/H.264)
+    │   ├── coach_message.py             우선순위 기반 한국어 코칭 문장 생성
+    │   ├── csv_reporter.py              프레임/시간별 모든 지표 CSV 리포트
+    │   └── danger_collector.py          위험 타임스탬프 수집(슬로우 모션용)
+    │
+    ├── models/
+    │   └── analysis_result.py           Pydantic AnalysisResult / DangerTimestamp / QualityWarning
+    │
+    └── tests/                           pytest 단위/통합 테스트
+        ├── conftest.py                  sys.path 설정
+        ├── test_preprocessor.py         PRD-1 단위 테스트
+        ├── test_metrics.py              PRD-2 단위 테스트
+        ├── test_renderer.py             PRD-3 렌더 단위 테스트 (mp4 사용)
+        ├── test_coach_message.py        PRD-3 코칭 메시지 단위 테스트
+        ├── test_csv_reporter.py         PRD-3 CSV 단위 테스트
+        ├── test_danger_collector.py     PRD-3 타임스탬프 단위 테스트
+        ├── test_quality_assessor.py     PRD-8 신뢰도 단위 테스트
+        ├── test_video_validator.py      PRD-8 입력 검증 단위 테스트
+        ├── test_video_rejection_e2e.py  PRD-8 거부 시나리오 E2E
+        ├── test_benchmark.py            전체 파이프라인 성능 벤치마크
+        └── reject_samples/              검증 거부 케이스용 짧은 mp4 6종
 ```
 
-## 빠른 시작
+---
 
-### 1. 서버 실행
+## 2. 일부러 빠진 것 (왜 안 보냈는지)
 
-```powershell
-Set-Location server
+| 빠진 항목 | 이유 |
+|---|---|
+| `server/api/` (upload/analysis/members) | PRD-4 범위. 분석 파이프라인 코어와 분리하기 위해 제외 |
+| `server/main.py` (FastAPI 앱) | PRD-4. `analyzer.run_full_analysis_with_output` 만 호출하면 동일 결과 |
+| `server/storage/` (uploads/renders/reports) | 런타임 산출물. `output_dir` 인자로 자유 지정 가능 |
+| `server/venv/`, `__pycache__/` | 로컬 환경 잔재 |
+| `app/` (React Native) | PRD-5/6 범위 |
+| `docs/PRD-4 ~ PRD-7` | API/앱/통합 단계 명세 |
+| `docs/INTEGRATION_TEST_CHECKLIST.md` | PRD-7 통합 환경용 체크리스트 |
+| `server/tests/test_api.py` | PRD-4 API 라우터 테스트 |
+| `server/dongwook*.mp4`, `pace6/630/7.mp4`, `debug_overlay*.mp4` | 추가 페이스 샘플·디버깅용 영상. `pace530.mp4` 하나로 모든 테스트 통과 |
+| `server/analyze_spikes.py`, `debug_overlay.py` | 일회성 디버깅 스크립트 |
+| `server/analysis_result.json`, `uvicorn.*.log`, `uploads_baseline.txt` | 런타임 캐시/로그 |
+
+---
+
+## 3. 빠르게 돌려보기
+
+```bash
+# 1) 가상환경 + 의존성
+cd server
 python -m venv venv
-venv\Scripts\Activate.ps1
+# Windows: venv\Scripts\activate    /   macOS·Linux: source venv/bin/activate
 pip install -r requirements.txt
 
-# 외부 디바이스 접근을 위해 host=0.0.0.0 필수
-venv\Scripts\python -m uvicorn main:app --host 0.0.0.0 --port 8000
+# 2) CLI 단독 실행 (storage/ 없이 핵심 분석만)
+python run_analysis.py pace530.mp4
+#   → 콘솔에 요약 출력, analysis_result.json 저장
+
+# 3) 산출물까지 한 번에 (PRD-3 전체)
+python -c "from analyzer import run_full_analysis_with_output; \
+           print(run_full_analysis_with_output('pace530.mp4', './out'))"
+#   → ./out/renders/<id>.mp4 (스켈레톤 영상)
+#   → ./out/reports/<id>.csv  (프레임별 CSV)
+#   → 반환 dict 안에 coach_message(한국어 문장) 포함
+
+# 4) 테스트
+pytest                # 전체
+pytest -m "not slow"  # 빠른 테스트만 (벤치마크 제외)
 ```
 
-### 2. PC IP 확인
+---
 
-```powershell
-ipconfig | Select-String "IPv4"
+> 📌 **프론트엔드 인수인계 시 합의 사항**: API 설계는 백엔드 작업자 자유. 단, 응답 본문은 `models/analysis_result.py`의 `AnalysisResult`를 그대로 직렬화하거나, 변경한다면 프론트엔드 작업자와 합의 후 스키마 문서 1장 작성 권장.
+
+## 4. 공개 API (이 코드만 import 하면 됨)
+
+```python
+from analyzer import (
+    run_full_analysis,               # 분석만 (AnalysisResult 반환)
+    run_full_analysis_with_output,   # 분석 + 렌더 + CSV + 코칭 메시지
+)
+from models.analysis_result import AnalysisResult
+from video_validator import validate, VideoValidationError
 ```
 
-서버 PC 의 LAN IP (예: `192.168.0.11`) 를 메모.
+- **`run_full_analysis(video_path) -> AnalysisResult`**
+  - PRD-8 검증 → 33 keypoints 추출 → 5단계 전처리 → 좌/우 착지 검출 → 3대 지표 + 비대칭 → 신뢰도 산출
+  - 실패 시 `VideoValidationError` (해상도/fps/길이 미충족)
 
-### 3. 방화벽 설정
+- **`run_full_analysis_with_output(video_path, output_dir) -> dict`**
+  - 위 + PRD-3 산출물 생성
+  - 반환: `{"analysis_result", "rendered_video_path", "csv_report_path", "coach_message"}`
+  - **중요**: `raw_df` 를 한 번만 추출해서 분석/렌더가 공유 (성능 최적화, 2026-05-16)
 
-- **Windows**: Defender 방화벽 → 인바운드 규칙 → 새 규칙 → 포트 → TCP 8000 허용
-- **macOS**: 시스템 환경설정 → 보안 → 방화벽 → uvicorn 허용
-- **Linux**: `sudo ufw allow 8000`
+`AnalysisResult` 스키마는 `models/analysis_result.py` 참고. 필드 추가 시 모바일 앱(별도 핸드오프)과 합의 필요.
 
-### 4. 앱 실행 (Android)
+---
 
-```powershell
-Set-Location app
-npm install
+## 5. 절대 손대지 말 것 (PRD-0 §1)
 
-# src/constants/api.ts 의 BASE_URL 확인:
-#   - 에뮬레이터 dev: 10.0.2.2:8000 (자동)
-#   - 실기기 dev: PC LAN IP 수정
-npm start              # 별도 터미널: Metro
-npm run android        # 또는: Set-Location android; .\gradlew.bat app:installDebug
-```
+| 항목 | 값 | 변경 시 영향 |
+|---|---|---|
+| AI 모델 | MediaPipe Pose (BlazePose) heavy | HEEL/FOOT_INDEX 좌표 없는 모델 사용 시 착지 검출 불가 |
+| `model_complexity` | 2 (Heavy) | 0/1 은 정확도 부족 |
+| 처리 방식 | 후처리 (post-processing) | 실시간 처리 시도 시 정확도 급락 |
+| UI/메시지 언어 | 한국어 100% | 영문 단독 금지 |
+| 환경 | 실내 트레드밀 측면 | 야외/정면/위 각도 영상 분석 정확도 보장 X |
+| 임계값 위치 | `config.py` 만 | 코드 내 매직 넘버 금지 |
 
-### 5. 분석 실행
+---
 
-1. 앱 시작 → 회원 모드 토글 (선택)
-2. "촬영 시작" 또는 "기존 영상 업로드"
-3. 5~60초 가로 (1280×720+) 영상 선택
-4. 업로드 → 폴링 → ResultScreen 에서 영상 + 메트릭 + 코칭 확인
+## 6. 필독 순서 (시간 없을 때)
 
-## 디렉토리 구조
+1. `docs/PRD-0-context.md` — 전체 컨텍스트 (5분)
+2. `docs/PRD-3-render-coach.md` §"흔한 함정" — 렌더링 lag·skeleton_df vs df 차이 (5분)
+3. `server/config.py` — 임계값 한 눈에 (3분)
+4. `server/analyzer/__init__.py` — 파이프라인 흐름도 (3분)
+5. `docs/KNOWN_ISSUES.md` — 현재 알려진 한계 (3분)
 
-```
-vibeRun/
-├── README.md                # 본 파일
-├── docs/                    # 모든 프로젝트 문서
-│   ├── PRD-0~8.md           # 단계별 PRD
-│   ├── BENCHMARK.md         # 성능 측정 결과
-│   ├── REFERENCES.md        # 학술 참고문헌 (1차 검증된 13종)
-│   ├── KNOWN_ISSUES.md      # 알려진 이슈
-│   └── INTEGRATION_TEST_CHECKLIST.md  # 7종 E2E 시나리오
-├── server/                  # FastAPI + MediaPipe Pose 분석
-│   ├── main.py
-│   ├── api/                 # upload / analysis / members
-│   ├── analyzer/            # pose_extractor / preprocessor / metrics / renderer / coach
-│   ├── models/
-│   ├── video_validator.py   # PRD-8 하드 요건 검증
-│   └── tests/               # 165 테스트 (161 단위 + 4 벤치마크)
-└── app/                     # React Native 0.85.3 + TypeScript
-    ├── src/
-    │   ├── screens/         # Home / Camera / Upload / Processing / Result / Dashboard / MemberSelect
-    │   ├── components/      # ConfidenceBadge / WarningList / CoachMessageCard / MetricsSummary / VideoPlayerWithMarkers / ProgressChart
-    │   ├── services/        # api / storage / videoPicker
-    │   ├── context/         # ModeContext (트레이너 모드)
-    │   ├── i18n/            # ko.json
-    │   └── constants/       # api / colors
-    └── App.tsx              # NavigationContainer + Stack
-```
+학술 근거가 필요하면 `docs/REFERENCES.md` (12종 1차 검증 완료, 2026-05-17).
 
-## 기술 스택
+---
 
-| 영역 | 스택 |
-|---|---|
-| AI 모델 | MediaPipe Pose Tasks API (BlazePose), model_complexity=2 (Heavy) |
-| 백엔드 | Python 3.10+ / FastAPI / OpenCV 4.x / mediapipe ≥ 0.10.35 |
-| 모바일 | React Native 0.85.3 + TypeScript + new architecture (Fabric) |
-| 네비 | @react-navigation v7 (native-stack) |
-| 카메라 | react-native-vision-camera v4.7 + orientation-locker |
-| 영상 재생 | react-native-video v6.19 |
-| 차트 | react-native-chart-kit + SVG |
-| 분석 전처리 | 5단계: mask → Hampel → L/R 보정 → forward fill → One Euro Filter |
+## 7. 핸드오프 시점 & 연락처
 
-## 성능
-
-- 분석 소요 시간: 약 30~40초 (10초 60fps 1080p 영상 기준, M-class CPU)
-- 자세한 벤치마크: [docs/BENCHMARK.md](./docs/BENCHMARK.md)
-
-## 문서
-
-| 문서 | 내용 |
-|---|---|
-| [`docs/PRD-0-context.md`](./docs/PRD-0-context.md) | 프로젝트 공통 컨텍스트 |
-| [`docs/PRD-1-pose-pipeline.md`](./docs/PRD-1-pose-pipeline.md) | Pose 추출 및 전처리 |
-| [`docs/PRD-2-metrics.md`](./docs/PRD-2-metrics.md) | 3대 지표 계산 + 비대칭 |
-| [`docs/PRD-3-render-coach.md`](./docs/PRD-3-render-coach.md) | 렌더링 / CSV / 한국어 코칭 |
-| [`docs/PRD-4-api.md`](./docs/PRD-4-api.md) | FastAPI 엔드포인트 |
-| [`docs/PRD-5-app-capture.md`](./docs/PRD-5-app-capture.md) | 앱 촬영 / 업로드 |
-| [`docs/PRD-6-app-result.md`](./docs/PRD-6-app-result.md) | 앱 결과 / 대시보드 |
-| [`docs/PRD-7-integration.md`](./docs/PRD-7-integration.md) | 통합 테스트 / 벤치마크 |
-| [`docs/PRD-8-video-input-spec.md`](./docs/PRD-8-video-input-spec.md) | 입력 영상 사양 (cross-cut) |
-| [`docs/BENCHMARK.md`](./docs/BENCHMARK.md) | 성능 측정 결과 |
-| [`docs/REFERENCES.md`](./docs/REFERENCES.md) | 학술 참고문헌 (1차 검증된 13종) |
-| [`docs/KNOWN_ISSUES.md`](./docs/KNOWN_ISSUES.md) | 알려진 이슈 |
-| [`docs/INTEGRATION_TEST_CHECKLIST.md`](./docs/INTEGRATION_TEST_CHECKLIST.md) | 7종 E2E 시나리오 수동 체크리스트 |
-
-## 알려진 이슈
-
-[docs/KNOWN_ISSUES.md](./docs/KNOWN_ISSUES.md) 참조.
-
-## 라이선스
-
-MIT License.
+- **핸드오프 시점**: 2026-05-18
+- **PRD-1~3 완료 상태**: ✅ (PRD-4~8 도 메인 리포에는 구현되어 있으나 본 폴더 범위 밖)
+- **검증 시나리오 6 통과**: 비대칭 false positive 해결 + Hybrid 임계 재조정 완료
+- **문의**: 메인 리포 `docs/` 안의 PRD 문서가 일차 소스. 코드 변경 시 PRD 문서도 함께 업데이트하는 컨벤션입니다.

@@ -18,7 +18,7 @@ from video_validator import (
     validate,
 )
 
-REAL_VIDEO = Path(__file__).resolve().parents[1] / "pace7.mp4"
+REAL_VIDEO = Path(__file__).resolve().parents[1] / "pace530.mp4"
 
 
 def _meta(
@@ -114,7 +114,7 @@ class TestBoundaryValues:
         assert validate("dummy.mp4").ok is True
 
     def test_exact_min_fps_passes(self, monkeypatch):
-        _patch_probe(monkeypatch, _meta(fps=30.0))
+        _patch_probe(monkeypatch, _meta(fps=60.0))
         assert validate("dummy.mp4").ok is True
 
     def test_exact_min_duration_passes(self, monkeypatch):
@@ -134,10 +134,10 @@ class TestException:
         assert "FPS_TOO_LOW" in str(exc)
 
 
-@pytest.mark.skipif(not REAL_VIDEO.exists(), reason="running_video.mp4 not present")
+@pytest.mark.skipif(not REAL_VIDEO.exists(), reason="pace530.mp4 not present")
 class TestRealVideo:
     def test_real_running_video_passes(self):
         r = validate(str(REAL_VIDEO))
         assert r.ok is True, f"Expected pass but got: {r.reason_code} {r.reason_message_ko}"
         assert r.meta.width >= 1280
-        assert r.meta.fps >= 30
+        assert r.meta.fps >= 60
